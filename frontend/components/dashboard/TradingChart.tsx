@@ -34,11 +34,17 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
     return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
   });
 
-  // Map prediction history to the same timestamps if they match
+  // Tambahkan label untuk jam depan
+  const extendedTimestamps = [...timestamps, "NEXT HR"];
+
+  // Mapping history prediksi ke titik-titik yang ada
   const aiLineData = data.map((item) => {
     const match = predictionHistory.find(p => p.timestamp === item.timestamp);
     return match ? match.price : null;
   });
+  
+  // Titik akhir (Masa depan)
+  aiLineData.push(prediction?.price || null);
 
   const option = {
     backgroundColor: 'transparent',
@@ -52,11 +58,11 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
       extraCssText: 'box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); border-radius: 16px; border: 1px solid #f1f5f9; min-width: 250px;',
       formatter: (params: any) => {
         const candle = params.find((p: any) => p.seriesName === 'Market Price');
-        const predict = params.find((p: any) => p.seriesName === 'AI Prediction');
+        const predict = params.find((p: any) => p.seriesName === 'AI Trace');
         
         let res = `<div style="font-weight: 900; color: #64748b; margin-bottom: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;">${params[0].name}</div>`;
         
-        if (candle) {
+        if (candle && candle.value[1] !== undefined) {
           const [index, open, close, low, high] = candle.value;
           res += `
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
@@ -66,7 +72,7 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
           `;
         }
         
-        if (predict && predict.value !== null) {
+        if (predict && predict.value !== null && !isNaN(predict.value)) {
           const pVal = Math.round(predict.value);
           res += `
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
@@ -75,20 +81,29 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
             </div>
           `;
           
-          if (candle) {
-            const actual = candle.value[2];
-            const diff = pVal - actual;
-            const diffPct = (diff / actual) * 100;
-            res += `
-              <div style="display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
-                <span style="color: #64748b; font-weight: bold;">Selisih (Gap):</span>
-                <span style="font-weight: 900; color: ${diff >= 0 ? '#10b981' : '#f43f5e'};">
-                  ${diff >= 0 ? '+' : ''}${Math.round(diff).toLocaleString('id-ID')} 
-                  <small style="font-size: 10px; margin-left: 4px;">(${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</small>
-                </span>
-              </div>
-            `;
+          if (candle && candle.value[1] !== undefined) {
+            const actual = candle.value[2]; // close price
+            if (actual && !isNaN(actual)) {
+                const diff = pVal - actual;
+                const diffPct = (diff / actual) * 100;
+                res += `
+                  <div style="display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
+                    <span style="color: #64748b; font-weight: bold;">Selisih (Gap):</span>
+                    <span style="font-weight: 900; color: ${diff >= 0 ? '#10b981' : '#f43f5e'};">
+                      ${diff >= 0 ? '+' : ''}${Math.round(diff).toLocaleString('id-ID')} 
+                      <small style="font-size: 10px; margin-left: 4px;">(${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(2)}%)</small>
+                    </span>
+                  </div>
+                `;
+            }
           }
+        } else {
+            res += `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+              <span style="color: #f59e0b; font-weight: bold;">AI Prediction:</span>
+              <span style="font-weight: 900; color: #cbd5e1; font-style: italic;">Calculating...</span>
+            </div>
+          `;
         }
         return res;
       }
@@ -107,7 +122,7 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
     },
     xAxis: {
       type: 'category',
-      data: timestamps,
+      data: extendedTimestamps,
       boundaryGap: true,
       axisLine: { lineStyle: { color: '#cbd5e1' } },
       axisLabel: { color: '#94a3b8', fontSize: 10, margin: 15 },
@@ -143,43 +158,28 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
         }
       },
       {
-        name: 'AI Prediction',
+        name: 'AI Trace',
         type: 'line',
         data: aiLineData,
         smooth: true,
-        showSymbol: false,
+        showSymbol: true,
+        symbol: 'circle',
+        symbolSize: 4,
         lineStyle: {
-          color: '#f59e0b', // Amber/Yellow
+          color: '#f59e0b',
           width: 2,
           type: 'dashed'
         },
-        itemStyle: { color: '#f59e0b' }
-      },
-      // Horizontal prediction marker for the FUTURE hour
-      {
-        name: 'Live Target',
-        type: 'line',
+        itemStyle: { color: '#f59e0b' },
+        // Hubungkan titik terakhir market ke prediksi depan
         markLine: prediction ? {
             symbol: ['none', 'none'],
             data: [
                 {
                     yAxis: prediction.price,
-                    name: 'AI Predict',
-                    lineStyle: {
-                        color: '#8b5cf6', // Purple
-                        type: 'dotted',
-                        width: 2
-                    },
-                    label: {
-                        show: true,
-                        position: 'end',
-                        formatter: 'TARGET',
-                        fontSize: 10,
-                        fontWeight: 'bold',
-                        backgroundColor: '#fff',
-                        padding: [2, 4],
-                        borderRadius: 4
-                    }
+                    name: 'TARGET',
+                    lineStyle: { color: '#8b5cf6', type: 'dotted', width: 2 },
+                    label: { show: true, position: 'end', formatter: 'TARGET' }
                 }
             ]
         } : undefined

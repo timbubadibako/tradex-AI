@@ -8,10 +8,11 @@ import pandas as pd
 import tensorflow as tf
 from datetime import datetime
 import ccxt
-from ta.momentum import RSIIndicator, StochasticOscillator
-from ta.trend import MACD
+from ta.momentum import RSIIndicator
+from ta.trend import MACD, SMAIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
 from ta.volume import OnBalanceVolumeIndicator
+from model_manager import ModelManager
 
 # FASTAPI & Server dependencies
 from fastapi import FastAPI
@@ -21,27 +22,31 @@ import uvicorn
 # ==========================================
 # 1. KONFIGURASI SISTEM
 # ==========================================
-MODEL_FILE = 'btc_idr_hybrid_v2.keras'
-SCALER_FEAT_FILE = 'scaler_features_v2.pkl'
-SCALER_TARGET_FILE = 'scaler_target_v2.pkl'
-
+MODELS_DIR = 'models'
 exchange = ccxt.indodax()
+exchange.timeframes['5m'] = '5'
+
+# State Global untuk API
+CURRENT_COIN = 'BTC' 
+CURRENT_TF = '1h' 
+
+global_market_data = [] 
+global_trade_history = []
+global_prediction_history_1h = [] 
+global_prediction_history_5m = [] 
+global_bot_status = {}
+global_prediction = {"price": 0, "change_pct": 0, "confidence": 0, "signal": "WAIT"}
+global_quant_metrics = {"obi": 0.0, "atr": 0.0}
+global_error_rate = 0.0 
+global_smoothed_obi = 0.0 
 
 INITIAL_BALANCE_IDR = 10000000  
 INITIAL_BALANCE_BTC = 1.0       
 TRADING_FEE = 0.001             
-LOT_SIZE = 0.005                
-
-# Global data storage untuk API
-global_market_data = [] 
-global_trade_history = []
-global_prediction_history = [] 
-global_bot_status = {}
-global_prediction = {"price": 0, "change_pct": 0}
-global_error_rate = 0.0 
+LOT_SIZE_BTC = 0.005 
 
 # ==========================================
-# 2. CLASS SANDBOX ENGINE (POSITION BASED)
+# 2. CLASS SANDBOX ENGINE
 # ==========================================
 class TradingSandbox:
     def __init__(self, idr, btc):
@@ -51,7 +56,7 @@ class TradingSandbox:
         self.wins = 0
         self.losses = 0
         self.history = []
-        self.active_position = None # 'LONG', 'SHORT', or None
+        self.active_position = None 
         self.entry_price = 0
 
     def get_equity(self, current_price):
@@ -59,257 +64,222 @@ class TradingSandbox:
 
     def open_long(self, price):
         if self.active_position is None:
-            cost = LOT_SIZE * price
+            cost = LOT_SIZE_BTC * price
             if self.balance_idr >= cost:
                 self.balance_idr -= cost * (1 + TRADING_FEE)
-                self.btc_holdings += LOT_SIZE
+                self.btc_holdings += LOT_SIZE_BTC
                 self.active_position = 'LONG'
                 self.entry_price = price
-                trade = {'type': 'OPEN_LONG', 'price': price, 'amount': LOT_SIZE, 'time': datetime.now().isoformat(), 'pnl': 0}
-                self.history.insert(0, trade)
-                global_trade_history.insert(0, trade)
-                print(f"📈 [LONG] Open position at Rp {price:,.0f}")
+                trade = {'type': 'OPEN_LONG', 'price': price, 'amount': LOT_SIZE_BTC, 'time': datetime.now().isoformat(), 'pnl': 0}
+                self.history.insert(0, trade); global_trade_history.insert(0, trade)
+                return True
+        return False
 
     def close_long(self, price):
         if self.active_position == 'LONG':
-            revenue = LOT_SIZE * price
-            self.balance_idr += revenue * (1 - TRADING_FEE)
-            self.btc_holdings -= LOT_SIZE
-            pnl = (price - self.entry_price) * LOT_SIZE
+            rev = LOT_SIZE_BTC * price
+            self.balance_idr += rev * (1 - TRADING_FEE)
+            self.btc_holdings -= LOT_SIZE_BTC
+            pnl = (price - self.entry_price) * LOT_SIZE_BTC
             if pnl > 0: self.wins += 1
             else: self.losses += 1
             self.active_position = None
-            trade = {'type': 'CLOSE_LONG', 'price': price, 'amount': LOT_SIZE, 'time': datetime.now().isoformat(), 'pnl': pnl}
-            self.history.insert(0, trade)
-            global_trade_history.insert(0, trade)
-            print(f"💰 [LONG] Closed at Rp {price:,.0f} | PnL: Rp {pnl:,.0f}")
+            trade = {'type': 'CLOSE_LONG', 'price': price, 'amount': LOT_SIZE_BTC, 'time': datetime.now().isoformat(), 'pnl': pnl}
+            self.history.insert(0, trade); global_trade_history.insert(0, trade)
+            return True
+        return False
 
     def open_short(self, price):
-        if self.active_position is None:
-            if self.btc_holdings >= LOT_SIZE:
-                # Simulasi short: jual dulu barang yang dipinjem/dimiliki
-                self.balance_idr += (LOT_SIZE * price) * (1 - TRADING_FEE)
-                self.btc_holdings -= LOT_SIZE
-                self.active_position = 'SHORT'
-                self.entry_price = price
-                trade = {'type': 'OPEN_SHORT', 'price': price, 'amount': LOT_SIZE, 'time': datetime.now().isoformat(), 'pnl': 0}
-                self.history.insert(0, trade)
-                global_trade_history.insert(0, trade)
-                print(f"📉 [SHORT] Open position at Rp {price:,.0f}")
+        if self.active_position is None and self.btc_holdings >= LOT_SIZE_BTC:
+            self.balance_idr += (LOT_SIZE_BTC * price) * (1 - TRADING_FEE)
+            self.btc_holdings -= LOT_SIZE_BTC
+            self.active_position = 'SHORT'
+            self.entry_price = price
+            trade = {'type': 'OPEN_SHORT', 'price': price, 'amount': LOT_SIZE_BTC, 'time': datetime.now().isoformat(), 'pnl': 0}
+            self.history.insert(0, trade); global_trade_history.insert(0, trade)
+            return True
+        return False
 
     def close_short(self, price):
         if self.active_position == 'SHORT':
-            cost = LOT_SIZE * price
+            cost = LOT_SIZE_BTC * price
             self.balance_idr -= cost * (1 + TRADING_FEE)
-            self.btc_holdings += LOT_SIZE
-            pnl = (self.entry_price - price) * LOT_SIZE # Short profit if price drops
+            self.btc_holdings += LOT_SIZE_BTC
+            pnl = (self.entry_price - price) * LOT_SIZE_BTC
             if pnl > 0: self.wins += 1
             else: self.losses += 1
             self.active_position = None
-            trade = {'type': 'CLOSE_SHORT', 'price': price, 'amount': LOT_SIZE, 'time': datetime.now().isoformat(), 'pnl': pnl}
-            self.history.insert(0, trade)
-            global_trade_history.insert(0, trade)
-            print(f"💰 [SHORT] Closed at Rp {price:,.0f} | PnL: Rp {pnl:,.0f}")
+            trade = {'type': 'CLOSE_SHORT', 'price': price, 'amount': LOT_SIZE_BTC, 'time': datetime.now().isoformat(), 'pnl': pnl}
+            self.history.insert(0, trade); global_trade_history.insert(0, trade)
+            return True
+        return False
 
 # ==========================================
-# 3. CLASS AI LEARNER
+# 3. UTILS
 # ==========================================
-class OnlineLearner:
-    def __init__(self, model_path):
-        self.model_path = model_path
-        self.model = tf.keras.models.load_model(model_path)
-        self.buffer_x = []
-        self.buffer_y = []
+def get_processed_df(symbol, timeframe, limit=100, btc_data=None):
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    df['vol_sma9'] = df['volume'].rolling(window=9).mean()
+    df['rsi'] = RSIIndicator(close=df['close']).rsi()
+    df['macd'] = MACD(close=df['close']).macd()
+    df['atr'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
+    bb = BollingerBands(close=df['close'])
+    df['bb_h'] = bb.bollinger_hband(); df['bb_l'] = bb.bollinger_lband()
+    df['obv'] = OnBalanceVolumeIndicator(close=df['close'], volume=df['volume']).on_balance_volume()
+    if btc_data is not None:
+        df = df.join(btc_data[['close', 'volume']], rsuffix='_BTC')
+        df.rename(columns={'close_BTC': 'btc_close', 'volume_BTC': 'btc_volume'}, inplace=True)
+    return df.dropna()
 
-    def add_experience(self, x_sequence, actual_y):
-        self.buffer_x.append(x_sequence)
-        self.buffer_y.append(actual_y)
-        if len(self.buffer_x) >= 5:
-            self.train_on_batch()
-
-    def train_on_batch(self):
-        print("🧠 [ONLINE LEARNING] Menyesuaikan bobot AI...")
-        X = np.array(self.buffer_x).reshape(-1, 60, 14)
-        Y = np.array(self.buffer_y).reshape(-1, 1)
-        self.model.fit(X, Y, epochs=2, verbose=0)
-        self.model.save(self.model_path)
-        self.buffer_x = []
-        self.buffer_y = []
-        print("✅ Bobot AI diperbarui.")
+def calculate_obi(symbol):
+    global global_smoothed_obi
+    try:
+        ob = exchange.fetch_order_book(symbol, limit=100)
+        mid = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
+        def w_vol(orders):
+            return sum([v * np.exp(-50 * abs(p - mid) / mid) for p, v in orders])
+        w_bids = w_vol(ob['bids']); w_asks = w_vol(ob['asks'])
+        curr = (w_bids - w_asks) / (w_bids + w_asks)
+        global_smoothed_obi = (curr * 0.2) + (global_smoothed_obi * 0.8)
+        return global_smoothed_obi
+    except: return global_smoothed_obi
 
 # ==========================================
-# 4. FASTAPI SETUP
+# 4. FASTAPI
 # ==========================================
-app = FastAPI(title="BTC AI Broker API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/api/status")
 def get_status():
     status = global_bot_status.copy()
-    status["error_rate"] = global_error_rate
+    status.update(global_quant_metrics)
+    status.update({"coin": CURRENT_COIN, "tf": CURRENT_TF, "error_rate": global_error_rate})
     return status
 
 @app.get("/api/chart")
 def get_chart():
-    return {
-        "ohlcv": global_market_data,
-        "prediction": global_prediction,
-        "prediction_history": global_prediction_history
-    }
+    hist = global_prediction_history_1h if CURRENT_TF == '1h' else global_prediction_history_5m
+    return {"ohlcv": global_market_data, "prediction": global_prediction, "prediction_history": hist}
+
+@app.post("/api/set_timeframe")
+def set_timeframe(tf: str):
+    global CURRENT_TF, refresh_event
+    if tf in ['1h', '5m']: 
+        CURRENT_TF = tf
+        refresh_event.set() # Turbo Refresh!
+        return {"status": "success"}
+    return {"status": "error"}
 
 @app.get("/api/trades")
-def get_trades():
-    return global_trade_history
+def get_trades(): return global_trade_history
+
+@app.post("/api/manual_buy")
+def manual_buy():
+    global manual_signal, refresh_event
+    manual_signal = "BUY"
+    refresh_event.set()
+    return {"status": "success"}
+
+@app.post("/api/manual_sell")
+def manual_sell():
+    global manual_signal, refresh_event
+    manual_signal = "SELL"
+    refresh_event.set()
+    return {"status": "success"}
+
+manual_signal = None
+refresh_event = threading.Event()
 
 # ==========================================
-# 5. BOT CORE ENGINE
+# 5. BOT LOOP
 # ==========================================
 def bot_loop():
-    global global_market_data, global_bot_status, global_prediction, global_prediction_history, global_error_rate
-    
-    print("🚀 Broker AI Engine Berjalan...")
-    
-    if not os.path.exists(MODEL_FILE):
-        print("❌ Model tidak ditemukan!")
-        return
-
-    learner = OnlineLearner(MODEL_FILE)
-    scaler_feat = joblib.load(SCALER_FEAT_FILE)
-    scaler_target = joblib.load(SCALER_TARGET_FILE)
+    global global_market_data, global_bot_status, global_prediction, global_prediction_history_1h, global_prediction_history_5m, global_quant_metrics, global_error_rate, refresh_event
+    print("🚀 Super-Brain Broker Engine Starting...")
+    manager = ModelManager(MODELS_DIR)
     sandbox = TradingSandbox(INITIAL_BALANCE_IDR, INITIAL_BALANCE_BTC)
     
-    # --- PRE-FILL PREDICTION HISTORY ---
-    print("⏳ Pre-filling AI Trace history...")
-    initial_ohlcv = exchange.fetch_ohlcv('BTC/IDR', timeframe='1h', limit=150)
-    df_init = pd.DataFrame(initial_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    # Indicators for history
-    df_init['rsi'] = RSIIndicator(close=df_init['close']).rsi()
-    stoch = StochasticOscillator(high=df_init['high'], low=df_init['low'], close=df_init['close'])
-    df_init['stoch_k'] = stoch.stoch(); df_init['stoch_d'] = stoch.stoch_signal()
-    macd = MACD(close=df_init['close'])
-    df_init['macd'] = macd.macd(); df_init['macd_signal'] = macd.macd_signal()
-    bb = BollingerBands(close=df_init['close'])
-    df_init['bb_high'] = bb.bollinger_hband(); df_init['bb_low'] = bb.bollinger_lband()
-    df_init['atr'] = AverageTrueRange(high=df_init['high'], low=df_init['low'], close=df_init['close']).average_true_range()
-    df_init['obv'] = OnBalanceVolumeIndicator(close=df_init['close'], volume=df_init['volume']).on_balance_volume()
-    df_init.dropna(inplace=True)
-    
-    features = ['open', 'high', 'low', 'close', 'volume', 'rsi', 'stoch_k', 'stoch_d', 'macd', 'macd_signal', 'bb_high', 'bb_low', 'atr', 'obv']
-    
-    total_error = 0
-    count = 0
-    for i in range(len(df_init) - 60):
-        seq = df_init.iloc[i : i + 60][features].values
-        scaled_seq = scaler_feat.transform(seq).reshape(1, 60, 14)
-        pred = learner.model.predict(scaled_seq, verbose=0)
-        dummy = np.zeros((1, 14)); dummy[0, 3] = pred[0, 0]
-        p_price = float(scaler_target.inverse_transform(dummy)[0, 3])
-        # Tebakan untuk 1 jam ke depan
-        target_hour_ts = int(df_init.iloc[i + 59]['timestamp']) + (3600 * 1000)
-        global_prediction_history.append({"timestamp": target_hour_ts, "price": p_price})
-        
-        # Hitung error jika actual-nya sudah ada di df_init
-        actual_match = df_init[df_init['timestamp'] == target_hour_ts]
-        if not actual_match.empty:
-            actual_price = actual_match.iloc[0]['close']
-            total_error += abs(p_price - actual_price) / actual_price
-            count += 1
+    # Pre-fill history
+    try:
+        manager.load_pair(CURRENT_COIN)
+        mm = manager.loaded_models[CURRENT_COIN]
+        df_init = get_processed_df(f"{CURRENT_COIN}/IDR", '1h', limit=150)
+        f_names = list(mm['1h']['scaler_x'].feature_names_in_)
+        for i in range(len(df_init) - 60):
+            c = df_init.iloc[i:i+60].copy()
+            if 'bb_high' in f_names and 'bb_high' not in c.columns: c['bb_high']=c['bb_h']; c['bb_low']=c['bb_l']
+            elif 'bb_h' in f_names and 'bb_h' not in c.columns: c['bb_h']=c['bb_high']; c['bb_l']=c['bb_low']
             
-    if count > 0:
-        global_error_rate = (total_error / count) * 100
-        
-    print(f"✅ Prediction history pre-filled. Initial MAPE: {global_error_rate:.2f}%")
+            # Wrap in DataFrame to keep sklearn happy
+            c_df = pd.DataFrame(c[f_names].values, columns=f_names)
+            x_in = mm['1h']['scaler_x'].transform(c_df).reshape(1, 60, -1)
+            p_p, _ = manager.predict_tf(CURRENT_COIN, '1h', x_in, float(c.iloc[-1]['close']))
+            global_prediction_history_1h.append({"timestamp": int(c.iloc[-1]['timestamp']) + (3600 * 1000), "price": p_p})
+    except: pass
 
-    last_processed_hour = None
-    
+    last_hour = None
     while True:
         try:
-            # 1. Fetch Data
-            ohlcv = exchange.fetch_ohlcv('BTC/IDR', timeframe='1h', limit=100)
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            current_price = float(df.iloc[-1]['close'])
-            current_ts = int(df.iloc[-1]['timestamp'])
-            current_hour = datetime.fromtimestamp(current_ts/1000).hour
+            symbol = f"{CURRENT_COIN}/IDR"
+            btc_1h = None; btc_5m = None
+            if CURRENT_COIN != 'BTC':
+                b1 = exchange.fetch_ohlcv('BTC/IDR', '1h', limit=100)
+                btc_1h = pd.DataFrame(b1, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                b5 = exchange.fetch_ohlcv('BTC/IDR', '5m', limit=100)
+                btc_5m = pd.DataFrame(b5, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
-            global_market_data = df.to_dict('records')
-
-            # 2. Indicators
-            df['rsi'] = RSIIndicator(close=df['close']).rsi()
-            stoch = StochasticOscillator(high=df['high'], low=df['low'], close=df['close'])
-            df['stoch_k'] = stoch.stoch(); df['stoch_d'] = stoch.stoch_signal()
-            macd = MACD(close=df['close'])
-            df['macd'] = macd.macd(); df['macd_signal'] = macd.macd_signal()
-            bb = BollingerBands(close=df['close'])
-            df['bb_high'] = bb.bollinger_hband(); df['bb_low'] = bb.bollinger_lband()
-            df['atr'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
-            df['obv'] = OnBalanceVolumeIndicator(close=df['close'], volume=df['volume']).on_balance_volume()
-            df.dropna(inplace=True)
-
-            # 3. Predict
-            last_sequence = df.tail(60)[features].values
-            scaled_input = scaler_feat.transform(last_sequence).reshape(1, 60, 14)
-            pred_scaled = learner.model.predict(scaled_input, verbose=0)
+            df1 = get_processed_df(symbol, '1h', limit=100, btc_data=btc_1h)
+            df5 = get_processed_df(symbol, '5m', limit=100, btc_data=btc_5m)
+            active = df1 if CURRENT_TF == '1h' else df5
+            curr_p = float(active.iloc[-1]['close']); curr_ts = int(active.iloc[-1]['timestamp'])
+            curr_h = datetime.fromtimestamp(curr_ts/1000).hour
             
-            dummy = np.zeros((1, 14)); dummy[0, 3] = pred_scaled[0, 0]
-            predicted_price = float(scaler_target.inverse_transform(dummy)[0, 3])
-            change_pct = ((predicted_price - current_price) / current_price) * 100
+            global_market_data = active.tail(100).to_dict('records')
+            obi = calculate_obi(symbol); atr = float(df5.iloc[-1]['atr'])
+            global_quant_metrics = {"obi": obi, "atr": atr}
+
+            mm = manager.loaded_models[CURRENT_COIN]
+            def prep(df, req, m_key):
+                c = df.tail(60).copy()
+                if 'bb_high' in req and 'bb_high' not in c.columns: c['bb_high']=c['bb_h']; c['bb_low']=c['bb_l']
+                elif 'bb_h' in req and 'bb_h' not in c.columns: c['bb_h']=c['bb_high']; c['bb_l']=c['bb_low']
+                # Wrap in DataFrame
+                c_df = pd.DataFrame(c[req].values, columns=req)
+                return mm[m_key]['scaler_x'].transform(c_df).reshape(1, 60, -1)
+
+            res = manager.get_consensus_signal(CURRENT_COIN, prep(df1, list(mm['1h']['scaler_x'].feature_names_in_), '1h'), prep(df5, list(mm['5m']['scaler_x'].feature_names_in_), '5m'), curr_p)
+            global_prediction = {"price": res['predict_5m' if CURRENT_TF == '5m' else 'predict_1h'], "change_pct": res['change_5m_pct'], "confidence": res['confidence'], "signal": res['signal'], "macro": res['trend_macro']}
+
+            global manual_signal
+            if manual_signal:
+                if manual_signal == 'BUY':
+                    if sandbox.active_position == 'SHORT': sandbox.close_short(curr_p)
+                    sandbox.open_long(curr_p)
+                else:
+                    if sandbox.active_position == 'LONG': sandbox.close_long(curr_p)
+                    sandbox.open_short(curr_p)
+                manual_signal = None
+            elif res['confidence'] > 0.7:
+                if res['signal'] == 'BUY' and obi > 0.1:
+                    if sandbox.active_position == 'SHORT': sandbox.close_short(curr_p)
+                    sandbox.open_long(curr_p)
+                elif res['signal'] == 'SELL' and obi < -0.1:
+                    if sandbox.active_position == 'LONG': sandbox.close_long(curr_p)
+                    sandbox.open_short(curr_p)
+
+            eq = sandbox.get_equity(curr_p); wr = (sandbox.wins / (sandbox.wins + sandbox.losses) * 100) if (sandbox.wins + sandbox.losses) > 0 else 0
+            global_bot_status = {"balance_idr": float(sandbox.balance_idr), "btc_holdings": float(sandbox.btc_holdings), "equity": float(eq), "profit_pct": float(((eq - sandbox.initial_equity) / sandbox.initial_equity) * 100), "total_trades": len(sandbox.history), "winrate": float(wr), "active_pos": sandbox.active_position, "entry_price": float(sandbox.entry_price), "market_price": float(curr_p), "last_update": datetime.now().isoformat()}
+
+            if last_hour != curr_h:
+                global_prediction_history_1h.append({"timestamp": curr_ts, "price": res['predict_1h']})
+                global_prediction_history_5m.append({"timestamp": curr_ts, "price": res['predict_5m']})
+                last_hour = curr_h
             
-            global_prediction = {"price": predicted_price, "change_pct": change_pct}
-
-            # 4. Trading Logic (Position Based)
-            if change_pct > 0.5:
-                if sandbox.active_position == 'SHORT': sandbox.close_short(current_price)
-                if sandbox.active_position is None: sandbox.open_long(current_price)
-            elif change_pct < -0.5:
-                if sandbox.active_position == 'LONG': sandbox.close_long(current_price)
-                if sandbox.active_position is None: sandbox.open_short(current_price)
-
-            # 5. Update Status
-            equity = sandbox.get_equity(current_price)
-            winrate = (sandbox.wins / (sandbox.wins + sandbox.losses) * 100) if (sandbox.wins + sandbox.losses) > 0 else 0
-            global_bot_status = {
-                "balance_idr": float(sandbox.balance_idr),
-                "btc_holdings": float(sandbox.btc_holdings),
-                "equity": float(equity),
-                "profit_pct": float(((equity - sandbox.initial_equity) / sandbox.initial_equity) * 100),
-                "total_trades": len(sandbox.history),
-                "winrate": float(winrate),
-                "active_pos": sandbox.active_position,
-                "entry_price": float(sandbox.entry_price),
-                "market_price": float(current_price),
-                "last_update": datetime.now().isoformat()
-            }
-
-            # 6. History & Learning
-            if last_processed_hour != current_hour:
-                target_ts = current_ts + (3600 * 1000)
-                global_prediction_history.append({"timestamp": target_ts, "price": predicted_price})
-                
-                if last_processed_hour is not None:
-                    actual_close = df.iloc[-2]['close']
-                    actual_y_scaled = scaler_target.transform([[actual_close]])[0, 0]
-                    prev_sequence_scaled = scaler_feat.transform(df.iloc[-62:-2][features].values)
-                    learner.add_experience(prev_sequence_scaled, actual_y_scaled)
-                    
-                    past_preds = [p for p in global_prediction_history if p['timestamp'] == current_ts]
-                    if past_preds:
-                        error = abs(past_preds[0]['price'] - current_price) / current_price
-                        global_error_rate = (global_error_rate * 0.9) + (error * 100 * 0.1)
-
-                last_processed_hour = current_hour
-
-            print(f"✔️ Broker Live: {current_price:,.0f} IDR | Equity: {equity:,.0f} | Pos: {sandbox.active_position}", end="\r")
-            time.sleep(10)
-
-        except Exception as e:
-            print(f"\n❌ Error: {e}")
-            time.sleep(10)
+            refresh_event.wait(10)
+            refresh_event.clear()
+        except Exception as e: print(f"\n❌ Error: {e}"); time.sleep(10)
 
 if __name__ == "__main__":
     t = threading.Thread(target=bot_loop, daemon=True)

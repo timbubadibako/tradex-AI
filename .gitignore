@@ -1,7 +1,8 @@
 bot_scalper/
-backend/*.csv
 frontend/.next/
 frontend/node_modules/
 *.pkl
 *.keras
+*.csv
+__pycache__
 .env
