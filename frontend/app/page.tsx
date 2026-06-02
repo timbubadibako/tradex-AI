@@ -2,328 +2,187 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Activity, Wallet, BarChart3, History, BrainCircuit, Clock, AlertCircle, 
-  TrendingUp, TrendingDown, LayoutDashboard, Target, Zap, ShieldCheck, Settings, PieChart, Info
+  Activity, Wallet, BarChart3, BrainCircuit, Target, Zap, Clock, ArrowUpRight, ArrowDownRight, History, ShieldCheck, CheckCircle2, XCircle, AlertTriangle
 } from "lucide-react";
 import { useState } from "react";
 import GlassCard from "@/components/dashboard/GlassCard";
-import TradingChart from "@/components/dashboard/TradingChart";
 import Sidebar from "@/components/dashboard/Sidebar";
-import Navbar from "@/components/dashboard/Navbar";
-import { useBotStatus, useMarketData, useTradeHistory } from "@/hooks/useDashboardData";
+import { useAllAssetsStatus, useEventLog } from "@/hooks/useDashboardData";
+import Link from "next/link";
 
-export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState("Dashboard");
-  const [showFullLogs, setShowFullLogs] = useState(false);
-  const [isSwitching, setIsSwitching] = useState(false); // State untuk loading pindah TF
-  const [loadingStep, setLoadingLoadingStep] = useState(0); // Tahapan pesan loading
-  const { status, isError: statusError, isLoading: statusLoading } = useBotStatus();
-  const { marketData, prediction, predictionHistory, isError: marketError, isLoading: marketLoading } = useMarketData();
-  const { trades, isError: tradesError } = useTradeHistory();
+export default function OverviewDashboard() {
+  const { allStatus, isLoading: statusLoading } = useAllAssetsStatus();
+  const { events, isLoading: eventsLoading } = useEventLog();
 
-  const isLoading = statusLoading || marketLoading;
-  const isDisconnected = statusError || marketError || tradesError;
-   
-  const loadingMessages = ["Memuat data timeframe...",
-    "Menganalisis pola AI...",
-    "Sinkronisasi data neural...",
-    "Segera selesai..."];
+  const coins = ['BTC', 'ETH', 'SOL'];
   
+  const totalEquity = Object.values(allStatus).reduce((sum: number, s: any) => sum + (s.equity || 0), 0);
+  const avgMape = Object.values(allStatus).reduce((sum: number, s: any) => sum + ((s.mape_1h + s.mape_5m) / 2 || 0), 0) / (coins.length || 1);
 
-  const handleTimeframeSwitch = async (tf: string) => {
-    if (status?.tf === tf) return;
-    setIsSwitching(true);
-    setLoadingLoadingStep(0);
-    
-    // Jalankan sequence pesan loading (total 5 detik)
-    const interval = setInterval(() => {
-        setLoadingLoadingStep(prev => (prev < 3 ? prev + 1 : prev));
-    }, 1200);
+  const renderDashboard = () => (
+    <div className="flex flex-col gap-10 pb-32">
+      
+      {/* HEADER SECTION: GLOBAL SUMMARY */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+         <GlassCard className="bg-gradient-to-br from-sky-500 to-sky-600 border-none text-white p-10 shadow-2xl" delay={0.1}>
+            <div className="flex items-center gap-3 mb-8 opacity-80"><Wallet className="w-6 h-6" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Global Assets</h3></div>
+            <p className="text-xs font-bold opacity-70 uppercase mb-2 leading-none">Total Pooled Equity</p>
+            <h2 className="text-5xl font-black tracking-tighter leading-none">Rp {(totalEquity || 0).toLocaleString('id-ID')}</h2>
+            <div className="mt-8 flex items-center gap-2 text-sky-100 bg-white/10 w-fit px-4 py-2 rounded-full border border-white/10 shadow-sm">
+               <ArrowUpRight className="w-4 h-4 text-emerald-300" />
+               <span className="text-[10px] font-black uppercase tracking-widest">+2.4% Neural Growth</span>
+            </div>
+         </GlassCard>
 
-    try {
-      await fetch(`http://localhost:8000/api/set_timeframe?tf=${tf}`, { method: 'POST' });
-      // Kunci loading tepat di 5 detik agar user merasa prosesnya "lengkap"
-      setTimeout(() => {
-        clearInterval(interval);
-        setIsSwitching(false);
-      }, 10000);
-    } catch (e) {
-      clearInterval(interval);
-      setIsSwitching(false);
-    }
-  };
+         <GlassCard className="p-10 border-white shadow-xl flex flex-col justify-center bg-white/80" delay={0.15}>
+            <div className="flex items-center gap-3 mb-8 text-purple-500"><BrainCircuit className="w-8 h-8" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Neural Health</h3></div>
+            <p className="text-xs font-black text-slate-400 uppercase mb-2 leading-none">Aggregated System Error</p>
+            <h2 className="text-5xl font-black text-slate-900 tracking-tighter leading-none">{(avgMape || 0).toFixed(2)}% <span className="text-sm font-bold text-slate-400">MAPE</span></h2>
+            <div className="mt-6 flex items-center gap-2 text-emerald-600 font-black text-[10px] uppercase tracking-widest">
+               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+               System Integrity: Optimal
+            </div>
+         </GlassCard>
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case "Dashboard":
-        return (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 pb-20">
-            {/* Left: Main Chart & AI Analysis */}
-            <div className="lg:col-span-3 space-y-6">
-              <GlassCard className="min-h-[550px]" delay={0.1}>
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-sky-500/10 rounded-xl">
-                      <BarChart3 className="w-5 h-5 text-sky-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-slate-800 text-sm uppercase tracking-wider">Market Intelligence</h3>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{status?.coin || 'BTC'}/IDR · LIVE</p>
-                    </div>
-                  </div>
-                  <div className="flex bg-slate-100/50 p-1 rounded-xl border border-white/50">
-                    {['1h', '5m'].map(tf => (
-                      <button 
-                        key={tf} 
-                        onClick={() => handleTimeframeSwitch(tf)}
-                        disabled={isSwitching}
-                        className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${status?.tf === tf ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'} ${isSwitching ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        {tf}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                <div className="relative">
-                  {/* Skeleton / Loading Overlay untuk Chart */}
-                  <AnimatePresence>
-                    {(isLoading || isSwitching) && (
-                      <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="absolute inset-0 z-20 bg-white/60 backdrop-blur-md flex items-center justify-center rounded-3xl border border-white"
-                      >
-                        <div className="flex flex-col items-center gap-6">
-                           <div className="relative w-16 h-16">
-                              <div className="absolute inset-0 border-4 border-sky-100 rounded-full" />
-                              <div className="absolute inset-0 border-4 border-sky-500 border-t-transparent rounded-full animate-spin" />
+         <GlassCard className="p-10 border-white shadow-xl flex flex-col justify-center bg-white/80" delay={0.2}>
+            <div className="flex items-center gap-3 mb-8 text-emerald-500"><Activity className="w-8 h-8" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Factory Activity</h3></div>
+            <div className="flex items-end gap-3 mb-6">
+                <h2 className="text-5xl font-black text-slate-900 tracking-tighter leading-none">6</h2>
+                <p className="text-sm font-black text-slate-400 uppercase mb-1 leading-none tracking-widest">Active Neural Workers</p>
+            </div>
+            <div className="flex gap-1.5 items-end h-10">
+                {[0,1,2,3,4,5,6,7,8,9].map(i => (
+                    <motion.div key={i} animate={{ height: [15, 40, 20, 35, 15] }} transition={{ repeat: Infinity, duration: 1.5, delay: i*0.1 }} className="flex-1 bg-emerald-400/40 rounded-full border border-emerald-400/10" />
+                ))}
+            </div>
+         </GlassCard>
+      </div>
+
+      {/* CENTER SECTION: 6-MODEL MAPE GRID & TIMELINE FEED */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
+        
+        {/* Left: 6-Model Precision Matrix (3/4) */}
+        <div className="lg:col-span-3 space-y-8">
+          <div className="flex items-center justify-between px-4">
+             <h3 className="font-black text-slate-800 text-sm uppercase tracking-[0.3em]">Neural Precision Matrix</h3>
+             <span className="text-[10px] font-black text-sky-500 uppercase tracking-widest">Across All Timeframes</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+            {coins.map((coin, idx) => {
+              const data = allStatus[coin] || {};
+              return (
+                <div key={coin} className="flex flex-col gap-10">
+                   {/* 1H Model Card */}
+                   <Link href={`/market?coin=${coin}&tf=1h`}>
+                     <GlassCard className="p-8 border-white shadow-sm hover:shadow-2xl transition-all group cursor-pointer bg-white/70" delay={0.2 + idx * 0.1}>
+                        <div className="flex justify-between items-start mb-6">
+                           <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-sky-500 group-hover:text-white transition-all shadow-sm"><Target className="w-7 h-7" /></div>
+                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">1H MACRO</span>
+                        </div>
+                        <h4 className="text-3xl font-black text-slate-900 mb-3 tracking-tighter uppercase">{coin}/IDR</h4>
+                        <div className="flex items-center gap-3 mb-6">
+                           <div className="flex-1 h-2 bg-slate-100/50 rounded-full overflow-hidden border border-white">
+                              <motion.div initial={{ width: 0 }} animate={{ width: `${Math.max(10, 100 - (data.mape_1h || 0) * 10)}%` }} className="h-full bg-sky-500 shadow-sm shadow-sky-100" />
                            </div>
-                           <div className="text-center space-y-1">
-                              <p className="text-xs font-black text-slate-800 uppercase tracking-[0.2em] animate-pulse">
-                                 {loadingMessages[loadingStep]}
-                              </p>
-                              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest italic">Please standby...</p>
+                           <span className="text-sm font-black text-sky-600">{(data.mape_1h || 0).toFixed(2)}%</span>
+                        </div>
+                        
+                        <div className="mb-6 flex items-center justify-between bg-white/40 p-3 rounded-2xl border border-white/60 shadow-inner">
+                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Live Gap</span>
+                           <div className="flex items-center gap-2">
+                              <span className={`text-xs font-black ${data.gap_idr_1h >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                 {data.gap_idr_1h >= 0 ? '+' : '-'}Rp {Math.abs(data.gap_idr_1h || 0).toLocaleString('id-ID')}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400">({(data.gap_pct_1h || 0).toFixed(2)}%)</span>
                            </div>
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  
-                  <TradingChart 
-                    data={marketData} 
-                    prediction={prediction} 
-                    predictionHistory={predictionHistory} 
-                  />
-                </div>
 
-                {/* AI Sniper Console */}
-                {prediction && (
-                  <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-6 rounded-[32px] bg-sky-500/5 border border-sky-100/50 flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center border border-white">
-                        <Target className="w-6 h-6 text-sky-500" />
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Sniper Projection (1H)</p>
-                        <p className="text-lg font-black text-slate-800 tracking-tight">
-                          Rp {(prediction.price ?? 0).toLocaleString('id-ID')} 
-                          <span className={`ml-2 text-xs font-bold ${prediction.change_pct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            ({prediction.change_pct >= 0 ? '+' : ''}{(prediction.change_pct ?? 0).toFixed(2)}%)
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                    <div className="p-6 rounded-[32px] bg-white/40 border border-white flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${prediction.signal === 'BUY' ? 'bg-emerald-100 text-emerald-600' : prediction.signal === 'SELL' ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400'}`}>
-                            <Zap className="w-5 h-5 fill-current" />
-                         </div>
-                         <div>
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Signal Confidence</p>
-                            <p className="text-sm font-black text-slate-700">{(prediction.confidence * 100).toFixed(1)}% · {prediction.signal}</p>
-                         </div>
-                      </div>
-                      <div className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest ${prediction.confidence > 0.7 ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                        {prediction.confidence > 0.7 ? 'High Precision' : 'Low Confidence'}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </GlassCard>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-sky-500 transition-colors flex items-center gap-2">Analyze Market Patterns →</p>
+                     </GlassCard>
+                   </Link>
 
-              {/* Trade Logs - Full Width below Chart */}
-              <GlassCard className={`flex flex-col transition-all duration-500 ease-in-out ${showFullLogs ? 'max-h-[800px]' : 'max-h-[350px]'}`} delay={0.4}>
-                <div className="flex items-center justify-between mb-6 sticky top-0 bg-white/10 backdrop-blur-sm z-10 pb-2">
-                  <div className="flex items-center gap-2">
-                    <History className="w-5 h-5 text-sky-500" />
-                    <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Execution Registry</h3>
-                  </div>
-                  <button 
-                    onClick={() => setShowFullLogs(!showFullLogs)}
-                    className="text-[9px] font-black text-sky-500 uppercase tracking-widest hover:underline"
-                  >
-                    {showFullLogs ? 'Hide Ledger' : 'View Ledger'}
-                  </button>
-                </div>
-                <div className="overflow-y-auto no-scrollbar flex-1">
-                  <table className="w-full text-left border-separate border-spacing-y-2">
-                    <tbody className="text-slate-600 font-bold">
-                      {trades.length === 0 && (
-                        <tr><td className="py-12 text-center text-slate-300 italic text-xs underline decoration-sky-100 underline-offset-8">Waiting for AI Execution...</td></tr>
-                      )}
-                      {trades.map((trade: any, i: number) => (
-                        <tr key={i} className="group transition-all hover:scale-[1.01]">
-                          <td className="py-4 pl-5 font-mono text-[9px] text-slate-400 bg-white/40 rounded-l-2xl border-y border-l border-white/60">{new Date(trade.time).toLocaleTimeString('id-ID')}</td>
-                          <td className="py-4 bg-white/40 border-y border-white/60">
-                            <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase shadow-sm ${trade.type.includes('BUY') || trade.type.includes('LONG') ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-                              {trade.type.replace('_', ' ')}
-                            </span>
-                          </td>
-                          <td className="py-4 bg-white/40 border-y border-white/60 text-xs text-slate-800">Rp {trade.price.toLocaleString('id-ID')}</td>
-                          <td className={`py-4 pr-5 text-right rounded-r-2xl bg-white/40 border-y border-r border-white/60 text-[10px] ${trade.pnl > 0 ? 'text-emerald-500' : trade.pnl < 0 ? 'text-rose-500' : 'text-slate-400'}`}>
-                            {trade.pnl !== 0 ? `${trade.pnl > 0 ? '+' : ''}Rp ${Math.abs(trade.pnl).toLocaleString('id-ID')}` : 'EXECUTING'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </GlassCard>
-            </div>
+                   {/* 5M Model Card */}
+                   <Link href={`/market?coin=${coin}&tf=5m`}>
+                     <GlassCard className="p-8 border-white shadow-sm hover:shadow-2xl transition-all group cursor-pointer bg-white/70" delay={0.3 + idx * 0.1}>
+                        <div className="flex justify-between items-start mb-6">
+                           <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-emerald-500 group-hover:text-white transition-all shadow-sm"><Zap className="w-7 h-7" /></div>
+                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">5M MICRO</span>
+                        </div>
+                        <h4 className="text-3xl font-black text-slate-900 mb-3 tracking-tighter uppercase">{coin}/IDR</h4>
+                        <div className="flex items-center gap-3 mb-6">
+                           <div className="flex-1 h-2 bg-slate-100/50 rounded-full overflow-hidden border border-white">
+                              <motion.div initial={{ width: 0 }} animate={{ width: `${Math.max(10, 100 - (data.mape_5m || 0) * 10)}%` }} className="h-full bg-emerald-500 shadow-sm shadow-emerald-100" />
+                           </div>
+                           <span className="text-sm font-black text-emerald-600">{(data.mape_5m || 0).toFixed(2)}%</span>
+                        </div>
 
-            {/* Right: Quant Metrics & Wallet */}
-            <div className="space-y-6">
-              {/* Wallet Card */}
-              <GlassCard className="bg-gradient-to-br from-sky-500 to-sky-600 border-none text-white shadow-2xl shadow-sky-200" delay={0.2}>
-                <div className="flex items-center justify-between mb-8 opacity-80">
-                  <div className="flex items-center gap-2">
-                    <Wallet className="w-4 h-4" />
-                    <h3 className="font-black text-[9px] uppercase tracking-[0.2em]">Live Assets</h3>
-                  </div>
-                  <Info className="w-3 h-3" />
-                </div>
-                <div className="space-y-6">
-                  <div>
-                    <p className="text-[9px] font-bold opacity-60 uppercase tracking-[0.2em] mb-1">Total Equity</p>
-                    <h2 className="text-2xl font-black tracking-tighter">Rp {(status?.equity ?? 0).toLocaleString('id-ID')}</h2>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/20">
-                    <div>
-                      <p className="text-[8px] font-bold opacity-60 uppercase mb-1">IDR Liquid</p>
-                      <p className="text-xs font-black">Rp {(status?.balance_idr ?? 0).toLocaleString('id-ID')}</p>
-                    </div>
-                    <div>
-                      <p className="text-[8px] font-bold opacity-60 uppercase mb-1">BTC Assets</p>
-                      <p className="text-xs font-black">{(status?.btc_holdings ?? 0).toFixed(4)} BTC</p>
-                    </div>
-                  </div>
-                </div>
-              </GlassCard>
+                        <div className="mb-6 flex items-center justify-between bg-white/40 p-3 rounded-2xl border border-white/60 shadow-inner">
+                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Live Gap</span>
+                           <div className="flex items-center gap-2">
+                              <span className={`text-xs font-black ${data.gap_idr_5m >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                 {data.gap_idr_5m >= 0 ? '+' : '-'}Rp {Math.abs(data.gap_idr_5m || 0).toLocaleString('id-ID')}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400">({(data.gap_pct_5m || 0).toFixed(2)}%)</span>
+                           </div>
+                        </div>
 
-              {/* Order Book Imbalance Card */}
-              <GlassCard delay={0.3} className="border-sky-100">
-                <div className="flex items-center gap-2 mb-6">
-                  <Activity className="w-5 h-5 text-sky-500" />
-                  <h3 className="font-black text-[9px] uppercase tracking-[0.2em] text-slate-800">Liquidity Power</h3>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-emerald-500 transition-colors flex items-center gap-2">Start Scalping Engine →</p>
+                     </GlassCard>
+                   </Link>
                 </div>
-                   <div className="space-y-6">
-                   <div className="flex justify-between text-[10px] font-black uppercase mb-1">
-                      <span className={(status?.obi ?? 0) > 0 ? "text-emerald-500" : "text-slate-400"}>Bids (Buying)</span>
-                      <span className={(status?.obi ?? 0) < 0 ? "text-rose-500" : "text-slate-400"}>Asks (Selling)</span>
-                   </div>
-                   <div className="relative h-4 w-full bg-slate-100 rounded-full flex overflow-hidden border border-white shadow-inner">
-                      {/* Green Part (Bids) */}
-                      <motion.div 
-                        animate={{ 
-                            width: `${50 + (status?.obi ?? 0) * 50}%`,
-                            backgroundColor: (status?.obi ?? 0) > 0.05 ? '#10b981' : '#e2e8f0' 
-                        }}
-                        className="h-full transition-colors duration-500 shadow-[inset_-2px_0_4px_rgba(0,0,0,0.05)]" 
-                      />
-                      {/* Red Part (Asks) */}
-                      <motion.div 
-                        animate={{ 
-                            backgroundColor: (status?.obi ?? 0) < -0.05 ? '#f43f5e' : '#e2e8f0' 
-                        }}
-                        className="h-full flex-1 transition-colors duration-500" 
-                      />
-                      {/* Center Marker */}
-                      <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/60 z-10" />
-                   </div>
-                   <div className="text-center">
-                      <p className="text-xl font-black text-slate-800">{(status?.obi ?? 0).toFixed(2)}</p>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                        {status?.obi > 0.1 ? 'Strong Buying Wall' : status?.obi < -0.1 ? 'Heavy Selling Wall' : 'Balanced Market'}
-                      </p>
-                   </div>
-                </div>
-              </GlassCard>
-
-              {/* AI Brain Card */}
-              <GlassCard delay={0.4} className="bg-amber-50/20">
-                <div className="flex items-center gap-2 mb-6 text-amber-600">
-                  <BrainCircuit className="w-5 h-5" />
-                  <h3 className="font-black text-[9px] uppercase tracking-[0.2em]">Brain Health</h3>
-                </div>
-                <div className="space-y-5">
-                   <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Error Rate</p>
-                        <p className="text-lg font-black text-slate-800">{(status?.error_rate ?? 0).toFixed(2)}%</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Trend Sync</p>
-                        <p className="text-[10px] font-black text-sky-600 uppercase">{prediction?.macro || 'NEUTRAL'}</p>
-                      </div>
-                   </div>
-                   <div className="pt-4 border-t border-slate-100">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase mb-2">Manual Intervention</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button className="py-3 rounded-xl bg-emerald-500 text-white font-black text-[9px] uppercase shadow-lg shadow-emerald-100 active:scale-95 transition-all">Buy</button>
-                        <button className="py-3 rounded-xl bg-rose-500 text-white font-black text-[9px] uppercase shadow-lg shadow-rose-100 active:scale-95 transition-all">Sell</button>
-                      </div>
-                   </div>
-                </div>
-              </GlassCard>
-            </div>
+              );
+            })}
           </div>
-        );
-      default:
-        return (
-          <GlassCard className="h-[600px] flex items-center justify-center border-dashed border-sky-200">
-            <div className="text-center">
-              <PieChart className="w-16 h-16 text-sky-200 mx-auto mb-4" />
-              <h2 className="text-2xl font-black text-slate-800">{activeTab} Section</h2>
-              <p className="text-slate-400 font-medium italic">Advanced features for {activeTab} coming soon.</p>
-            </div>
-          </GlassCard>
-        );
-    }
-  };
+        </div>
+
+        {/* Right: Evolutionary Timeline Feed (1/4) */}
+        <div className="space-y-6">
+           <div className="flex items-center gap-3 px-4">
+              <Clock className="w-7 h-7 text-sky-500" />
+              <h3 className="font-black text-slate-800 text-sm uppercase tracking-[0.3em]">Learning Feed</h3>
+           </div>
+           <GlassCard className="flex-1 flex flex-col min-h-[500px] border-white/80 shadow-xl overflow-hidden bg-white/90" delay={0.4}>
+              <div className="space-y-10 overflow-y-auto no-scrollbar max-h-[670px] p-6">
+                 {events.length === 0 ? (
+                    <div className="py-24 text-center text-slate-300 italic text-sm uppercase tracking-[0.2em]">Waiting for neural breakthroughs...</div>
+                 ) : events.map((ev: any, i: number) => (
+                    <div key={i} className="relative pl-10 border-l-2 border-slate-100 pb-2 group">
+                       <div className="absolute -left-[11px] top-0 w-5 h-5 rounded-full bg-white border-4 border-sky-500 shadow-md group-hover:scale-125 transition-transform duration-300" />
+                       <div className="flex flex-col gap-3">
+                          <div className="flex items-center gap-2 opacity-60">
+                             <History className="w-3.5 h-3.5" />
+                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{new Date(ev.time).toLocaleTimeString('id-ID')}</span>
+                          </div>
+                          <p className="text-sm font-black text-slate-800 leading-tight tracking-tight uppercase">{ev.message}</p>
+                          {ev.type === 'RECORD' && (
+                             <div className="mt-2 inline-flex items-center gap-2 bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20 w-fit shadow-sm">
+                                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest leading-none">Knowledge Optimized</span>
+                             </div>
+                          )}
+                       </div>
+                    </div>
+                 ))}
+              </div>
+           </GlassCard>
+        </div>
+      </div>
+
+    </div>
+  );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans">
-      <Sidebar onTabChange={setActiveTab} activeTab={activeTab} />
-
-      <main className="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto no-scrollbar">
-        <div className="mx-auto max-w-7xl w-full space-y-6">
-          <Navbar />
+    <div className="flex min-h-screen bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
+      <Sidebar />
+      <main className="flex-1 flex flex-col p-12 md:p-20">
+        <div className="mx-auto max-w-[1800px] w-full">
           <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              {renderContent()}
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.3 }}>
+              {renderDashboard()}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
-
       <style jsx global>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

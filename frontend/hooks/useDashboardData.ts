@@ -5,7 +5,7 @@ const API_BASE = 'http://localhost:8000/api';
 
 export function useBotStatus() {
   const { data, error, isLoading } = useSWR(`${API_BASE}/status`, fetcher, {
-    refreshInterval: 5000, // 5s for status
+    refreshInterval: 5000,
   });
 
   return {
@@ -14,6 +14,30 @@ export function useBotStatus() {
     isError: error
   };
 }
+
+export function useAllAssetsStatus() {
+    const { data, error, isLoading } = useSWR(`${API_BASE}/all_status`, fetcher, {
+      refreshInterval: 5000,
+    });
+  
+    return {
+      allStatus: data || {},
+      isLoading,
+      isError: error
+    };
+  }
+
+export function useEventLog() {
+    const { data, error, isLoading } = useSWR(`${API_BASE}/events`, fetcher, {
+      refreshInterval: 5000,
+    });
+  
+    return {
+      events: data || [],
+      isLoading,
+      isError: error
+    };
+  }
 
 export function useMarketData() {
   const { data, error, isLoading } = useSWR(`${API_BASE}/chart`, fetcher, {

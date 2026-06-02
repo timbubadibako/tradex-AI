@@ -2,6 +2,7 @@ import os
 import joblib
 import numpy as np
 import tensorflow as tf
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 class ModelManager:
@@ -20,7 +21,7 @@ class ModelManager:
         if coin in self.loaded_models:
             return
 
-        print(f"🧠 [MODEL MANAGER] Loading models for {coin}...")
+        print(f"🧠 [MODEL MANAGER] Loading knowledge for {coin}...")
         
         # Keys: BTC_1H, BTC_5, etc.
         key_1h = self._get_model_key(coin, '1h')
@@ -28,45 +29,87 @@ class ModelManager:
 
         try:
             # 1H Model Assets
-            m_1h = tf.keras.models.load_model(os.path.join(self.models_dir, f"{key_1h}.keras"))
+            path_1h = os.path.join(self.models_dir, f"{key_1h}.keras")
+            m_1h = tf.keras.models.load_model(path_1h)
             s_x_1h = joblib.load(os.path.join(self.models_dir, f"{key_1h}_scaler_x.pkl"))
             s_y_1h = joblib.load(os.path.join(self.models_dir, f"{key_1h}_scaler_y.pkl"))
+            time_1h = datetime.fromtimestamp(os.path.getmtime(path_1h)).strftime('%Y-%m-%d %H:%M')
 
             # 5M Model Assets
-            m_5m = tf.keras.models.load_model(os.path.join(self.models_dir, f"{key_5m}.keras"))
+            path_5m = os.path.join(self.models_dir, f"{key_5m}.keras")
+            m_5m = tf.keras.models.load_model(path_5m)
             s_x_5m = joblib.load(os.path.join(self.models_dir, f"{key_5m}_scaler_x.pkl"))
             s_y_5m = joblib.load(os.path.join(self.models_dir, f"{key_5m}_scaler_y.pkl"))
+            time_5m = datetime.fromtimestamp(os.path.getmtime(path_5m)).strftime('%Y-%m-%d %H:%M')
 
             self.loaded_models[coin] = {
-                '1h': {'model': m_1h, 'scaler_x': s_x_1h, 'scaler_y': s_y_1h},
-                '5m': {'model': m_5m, 'scaler_x': s_x_5m, 'scaler_y': s_y_5m}
+                '1h': {'model': m_1h, 'scaler_x': s_x_1h, 'scaler_y': s_y_1h, 'last_save': time_1h},
+                '5m': {'model': m_5m, 'scaler_x': s_x_5m, 'scaler_y': s_y_5m, 'last_save': time_5m}
             }
-            print(f"✅ Models for {coin} (1H & 5M) loaded successfully.")
+            print(f"✅ Models {coin} READY. [1H: {time_1h} | 5M: {time_5m}]")
         except Exception as e:
             print(f"❌ Failed to load models for {coin}: {e}")
             raise e
 
+    def save_pair(self, coin: str):
+        """Save the current weights in RAM back to disk"""
+        coin = coin.upper()
+        if coin not in self.loaded_models: return False
+        
+        try:
+            for tf_label in ['1h', '5m']:
+                key = self._get_model_key(coin, tf_label)
+                path = os.path.join(self.models_dir, f"{key}.keras")
+                self.loaded_models[coin][tf_label]['model'].save(path)
+                # Update memory timestamp
+                self.loaded_models[coin][tf_label]['last_save'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+            
+            print(f"💾 [DISK] {coin} models updated on disk with new peak accuracy.")
+            return True
+        except Exception as e:
+            print(f"⚠️ Failed to auto-save {coin}: {e}")
+            return False
+
     def predict_tf(self, coin: str, tf_label: str, x_input: np.ndarray, current_price: float) -> Tuple[float, float]:
         """
-        Returns: (predicted_price, confidence_score)
+        High-performance prediction using direct model call (no retracing).
         """
         coin = coin.upper()
         assets = self.loaded_models[coin][tf_label]
         
-        pred_scaled = assets['model'].predict(x_input, verbose=0)[0, 0]
+        # SAKTI: Convert to tensor and call model directly to prevent overhead
+        input_tensor = tf.convert_to_tensor(x_input, dtype=tf.float32)
+        pred_scaled = assets['model'](input_tensor, training=False).numpy()[0, 0]
         
         dummy = np.zeros((1, 1))
         dummy[0, 0] = pred_scaled
         pred_price = float(assets['scaler_y'].inverse_transform(dummy)[0, 0])
         
-        # Dynamic Confidence (Simplified for Regression):
-        # We assume higher percentage change predictions imply stronger conviction.
-        # Max confidence capped at 95% to remain realistic. Base confidence is 50%.
+        # Dynamic Confidence Formula
         change_pct = abs((pred_price - current_price) / current_price) * 100
-        # Formula: Base 50% + (ChangePct * 15), capped at 95%
         confidence = min(0.95, 0.50 + (change_pct * 0.15))
         
         return pred_price, confidence
+
+    def online_learn(self, coin: str, tf_label: str, x_train: np.ndarray, y_actual: float):
+        """
+        Lightweight incremental training (Online Learning)
+        Updates the model weights based on a single new observation.
+        """
+        coin = coin.upper()
+        assets = self.loaded_models[coin][tf_label]
+        
+        # Scale actual target price to model's expected range
+        dummy = np.zeros((1, 1))
+        dummy[0, 0] = y_actual
+        y_scaled = assets['scaler_y'].transform(dummy)
+        
+        # Incremental update (1 epoch, minimal impact to prevent catastrophic forgetting)
+        # Using train_on_batch for speed and simplicity in online learning
+        loss = assets['model'].train_on_batch(x_train, y_scaled)
+        
+        # print(f"🧠 [ONLINE LEARNING] {coin} {tf_label} updated. Loss: {loss:.6f}")
+        return loss
 
     def get_consensus_signal(self, coin: str, data_1h: np.ndarray, data_5m: np.ndarray, current_price: float) -> Dict:
         """
