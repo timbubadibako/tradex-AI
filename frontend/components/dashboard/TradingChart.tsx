@@ -37,9 +37,10 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
   // Tambahkan label untuk jam depan
   const extendedTimestamps = [...timestamps, "NEXT HR"];
 
-  // Mapping history prediksi ke titik-titik yang ada
+  // Mapping history prediksi ke titik-titik yang ada (Toleransi kecil untuk memastikan presisi)
   const aiLineData = data.map((item) => {
-    const match = predictionHistory.find(p => p.timestamp === item.timestamp);
+    // Cari prediksi yang jarak waktunya paling deket (toleransi max 1 menit)
+    const match = predictionHistory.find(p => Math.abs(p.timestamp - item.timestamp) <= 60000);
     return match ? match.price : null;
   });
   
@@ -165,6 +166,7 @@ export default function TradingChart({ data, prediction, predictionHistory = [] 
         showSymbol: true,
         symbol: 'circle',
         symbolSize: 4,
+        connectNulls: true,
         lineStyle: {
           color: '#f59e0b',
           width: 2,

@@ -2,9 +2,9 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Activity, Wallet, BarChart3, BrainCircuit, Target, Zap, Clock, ArrowUpRight, ArrowDownRight, History, ShieldCheck, CheckCircle2, XCircle, AlertTriangle
+  Activity, Wallet, BarChart3, BrainCircuit, Target, Zap, Clock, ArrowUpRight, ArrowDownRight, History as HistoryIcon, ShieldCheck, CheckCircle2, XCircle, AlertTriangle
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import GlassCard from "@/components/dashboard/GlassCard";
 import Sidebar from "@/components/dashboard/Sidebar";
 import { useAllAssetsStatus, useEventLog } from "@/hooks/useDashboardData";
@@ -13,11 +13,35 @@ import Link from "next/link";
 export default function OverviewDashboard() {
   const { allStatus, isLoading: statusLoading } = useAllAssetsStatus();
   const { events, isLoading: eventsLoading } = useEventLog();
+  const [prevStatus, setPrevStatus] = useState<any>({});
+  const [pulses, setPulses] = useState<Record<string, boolean>>({});
 
   const coins = ['BTC', 'ETH', 'SOL'];
   
   const totalEquity = Object.values(allStatus).reduce((sum: number, s: any) => sum + (s.equity || 0), 0);
   const avgMape = Object.values(allStatus).reduce((sum: number, s: any) => sum + ((s.mape_1h + s.mape_5m) / 2 || 0), 0) / (coins.length || 1);
+
+  // Effect to trigger "Pulse" when data changes
+  useEffect(() => {
+    const newPulses: Record<string, boolean> = {};
+    let changed = false;
+    
+    coins.forEach(c => {
+        if (allStatus[c] && prevStatus[c]) {
+            if (allStatus[c].gap_idr_5m !== prevStatus[c].gap_idr_5m || allStatus[c].obi !== prevStatus[c].obi) {
+                newPulses[c] = true;
+                changed = true;
+            }
+        }
+    });
+
+    if (changed) {
+        setPulses(newPulses);
+        setPrevStatus(allStatus);
+        const timer = setTimeout(() => setPulses({}), 300);
+        return () => clearTimeout(timer);
+    }
+  }, [allStatus]);
 
   const renderDashboard = () => (
     <div className="flex flex-col gap-10 pb-32">
@@ -70,13 +94,14 @@ export default function OverviewDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
             {coins.map((coin, idx) => {
               const data = allStatus[coin] || {};
+              const isPulsing = pulses[coin];
               return (
                 <div key={coin} className="flex flex-col gap-10">
                    {/* 1H Model Card */}
                    <Link href={`/market?coin=${coin}&tf=1h`}>
                      <GlassCard className="p-8 border-white shadow-sm hover:shadow-2xl transition-all group cursor-pointer bg-white/70" delay={0.2 + idx * 0.1}>
                         <div className="flex justify-between items-start mb-6">
-                           <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-sky-500 group-hover:text-white transition-all shadow-sm"><Target className="w-7 h-7" /></div>
+                           <div className="p-3 bg-slate-50 text-sky-500 rounded-2xl group-hover:bg-sky-500 group-hover:text-white transition-all shadow-sm"><Target className="w-7 h-7" /></div>
                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">1H MACRO</span>
                         </div>
                         <h4 className="text-3xl font-black text-slate-900 mb-3 tracking-tighter uppercase">{coin}/IDR</h4>
@@ -87,15 +112,18 @@ export default function OverviewDashboard() {
                            <span className="text-sm font-black text-sky-600">{(data.mape_1h || 0).toFixed(2)}%</span>
                         </div>
                         
-                        <div className="mb-6 flex items-center justify-between bg-white/40 p-3 rounded-2xl border border-white/60 shadow-inner">
-                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Live Gap</span>
+                        <motion.div 
+                          animate={isPulsing ? { scale: [1, 1.02, 1], backgroundColor: ['rgba(248,250,252,0.5)', 'rgba(224,242,254,0.8)', 'rgba(248,250,252,0.5)'] } : {}}
+                          className="mb-6 flex items-center justify-between bg-slate-50/50 p-3 rounded-2xl border border-white/60 transition-colors"
+                        >
+                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Price Gap</span>
                            <div className="flex items-center gap-2">
                               <span className={`text-xs font-black ${data.gap_idr_1h >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                  {data.gap_idr_1h >= 0 ? '+' : '-'}Rp {Math.abs(data.gap_idr_1h || 0).toLocaleString('id-ID')}
                               </span>
                               <span className="text-[10px] font-bold text-slate-400">({(data.gap_pct_1h || 0).toFixed(2)}%)</span>
                            </div>
-                        </div>
+                        </motion.div>
 
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-sky-500 transition-colors flex items-center gap-2">Analyze Market Patterns →</p>
                      </GlassCard>
@@ -105,7 +133,7 @@ export default function OverviewDashboard() {
                    <Link href={`/market?coin=${coin}&tf=5m`}>
                      <GlassCard className="p-8 border-white shadow-sm hover:shadow-2xl transition-all group cursor-pointer bg-white/70" delay={0.3 + idx * 0.1}>
                         <div className="flex justify-between items-start mb-6">
-                           <div className="p-3 bg-slate-50 rounded-2xl group-hover:bg-emerald-500 group-hover:text-white transition-all shadow-sm"><Zap className="w-7 h-7" /></div>
+                           <div className="p-3 bg-slate-50 text-emerald-500 rounded-2xl group-hover:bg-emerald-500 group-hover:text-white transition-all shadow-sm"><Zap className="w-7 h-7" /></div>
                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">5M MICRO</span>
                         </div>
                         <h4 className="text-3xl font-black text-slate-900 mb-3 tracking-tighter uppercase">{coin}/IDR</h4>
@@ -116,15 +144,18 @@ export default function OverviewDashboard() {
                            <span className="text-sm font-black text-emerald-600">{(data.mape_5m || 0).toFixed(2)}%</span>
                         </div>
 
-                        <div className="mb-6 flex items-center justify-between bg-white/40 p-3 rounded-2xl border border-white/60 shadow-inner">
-                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Live Gap</span>
+                        <motion.div 
+                          animate={isPulsing ? { scale: [1, 1.02, 1], backgroundColor: ['rgba(248,250,252,0.5)', 'rgba(236,253,245,0.8)', 'rgba(248,250,252,0.5)'] } : {}}
+                          className="mb-6 flex items-center justify-between bg-slate-50/50 p-3 rounded-2xl border border-white/60 transition-colors"
+                        >
+                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Price Gap</span>
                            <div className="flex items-center gap-2">
                               <span className={`text-xs font-black ${data.gap_idr_5m >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                  {data.gap_idr_5m >= 0 ? '+' : '-'}Rp {Math.abs(data.gap_idr_5m || 0).toLocaleString('id-ID')}
                               </span>
                               <span className="text-[10px] font-bold text-slate-400">({(data.gap_pct_5m || 0).toFixed(2)}%)</span>
                            </div>
-                        </div>
+                        </motion.div>
 
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-emerald-500 transition-colors flex items-center gap-2">Start Scalping Engine →</p>
                      </GlassCard>
@@ -141,25 +172,23 @@ export default function OverviewDashboard() {
               <Clock className="w-7 h-7 text-sky-500" />
               <h3 className="font-black text-slate-800 text-sm uppercase tracking-[0.3em]">Learning Feed</h3>
            </div>
-           <GlassCard className="flex-1 flex flex-col min-h-[500px] border-white/80 shadow-xl overflow-hidden bg-white/90" delay={0.4}>
-              <div className="space-y-10 overflow-y-auto no-scrollbar max-h-[670px] p-6">
+           <GlassCard className="flex-1 flex flex-col p-8 min-h-[800px] border-white/80 shadow-xl overflow-hidden bg-white/90" delay={0.4}>
+              <div className="space-y-0 max-h-[850px] overflow-y-auto no-scrollbar relative before:absolute before:inset-0 before:ml-[11px] before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-slate-200 before:via-slate-200 before:to-transparent">
                  {events.length === 0 ? (
-                    <div className="py-24 text-center text-slate-300 italic text-sm uppercase tracking-[0.2em]">Waiting for neural breakthroughs...</div>
-                 ) : events.map((ev: any, i: number) => (
-                    <div key={i} className="relative pl-10 border-l-2 border-slate-100 pb-2 group">
-                       <div className="absolute -left-[11px] top-0 w-5 h-5 rounded-full bg-white border-4 border-sky-500 shadow-md group-hover:scale-125 transition-transform duration-300" />
-                       <div className="flex flex-col gap-3">
-                          <div className="flex items-center gap-2 opacity-60">
-                             <History className="w-3.5 h-3.5" />
-                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{new Date(ev.time).toLocaleTimeString('id-ID')}</span>
-                          </div>
-                          <p className="text-sm font-black text-slate-800 leading-tight tracking-tight uppercase">{ev.message}</p>
-                          {ev.type === 'RECORD' && (
-                             <div className="mt-2 inline-flex items-center gap-2 bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20 w-fit shadow-sm">
-                                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest leading-none">Knowledge Optimized</span>
+                    <div className="py-24 text-center text-slate-300 italic text-sm uppercase tracking-[0.2em] relative z-10 bg-white/50 backdrop-blur-sm w-fit mx-auto px-4 rounded-full">Waiting for neural breakthroughs...</div>
+                 ) : events.slice().reverse().map((ev: any, i: number) => (
+                    <div key={i} className="relative flex items-center justify-between group py-4">
+                       <div className={`flex items-center justify-center w-6 h-6 rounded-full border-4 border-white shrink-0 shadow-sm relative z-10 ${ev.type === 'ERROR' || ev.type === 'WARNING' ? 'bg-amber-500' : ev.type === 'RECORD' ? 'bg-emerald-500' : 'bg-sky-500'}`}>
+                           <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                       </div>
+                       <div className="w-[calc(100%-2.5rem)] pl-4">
+                          <div className="flex flex-col gap-2 p-4 rounded-2xl bg-white/60 border border-slate-100/50 shadow-sm group-hover:bg-white group-hover:shadow-md transition-all">
+                             <div className="flex items-center gap-2 opacity-80">
+                                <HistoryIcon className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{new Date(ev.time).toLocaleTimeString('id-ID')}</span>
                              </div>
-                          )}
+                             <p className="text-xs font-bold text-slate-700 leading-snug uppercase tracking-tight">{ev.message}</p>
+                          </div>
                        </div>
                     </div>
                  ))}
@@ -172,9 +201,9 @@ export default function OverviewDashboard() {
   );
 
   return (
-    <div className="flex min-h-screen bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
+    <div className="flex h-screen overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
       <Sidebar />
-      <main className="flex-1 flex flex-col p-12 md:p-20">
+      <main className="flex-1 flex flex-col p-12 md:p-20 overflow-y-auto no-scrollbar">
         <div className="mx-auto max-w-[1800px] w-full">
           <AnimatePresence mode="wait">
             <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.3 }}>

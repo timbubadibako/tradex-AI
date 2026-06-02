@@ -18,9 +18,9 @@ export default function PortfolioPage() {
   const totalPnL = trades.reduce((sum: number, t: any) => sum + (t.pnl || 0), 0);
 
   return (
-    <div className="flex min-h-screen bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans">
+    <div className="flex h-screen overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
       <Sidebar />
-      <main className="flex-1 flex flex-col p-8 md:p-16">
+      <main className="flex-1 flex flex-col p-12 md:p-20 overflow-y-auto no-scrollbar">
         <div className="mx-auto max-w-[1400px] w-full space-y-12">
           
           <header className="flex justify-between items-end">

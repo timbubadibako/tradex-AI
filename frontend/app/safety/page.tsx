@@ -6,11 +6,12 @@ import { useState, useEffect } from "react";
 import GlassCard from "@/components/dashboard/GlassCard";
 import Sidebar from "@/components/dashboard/Sidebar";
 import useSWR from "swr";
+import { getApiUrl } from "@/lib/constants";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 export default function SafetyPage() {
-  const { data: safety, mutate } = useSWR('http://localhost:8000/api/safety', fetcher);
+  const { data: safety, mutate } = useSWR(`${getApiUrl()}/api/safety`, fetcher);
   const [sl, setSl] = useState(1.5);
   const [tp, setTp] = useState(2.5);
 
@@ -22,22 +23,22 @@ export default function SafetyPage() {
   }, [safety]);
 
   const handleUpdate = async () => {
-    await fetch(`http://localhost:8000/api/update_safety?sl=${sl}&tp=${tp}`, { method: 'POST' });
+    await fetch(`${getApiUrl()}/api/update_safety?sl=${sl}&tp=${tp}`, { method: 'POST' });
     mutate();
     alert("Safety parameters updated successfully.");
   };
 
   const handlePanic = async () => {
     if (confirm("EMERGENCY: This will liquidate ALL positions immediately. Are you sure?")) {
-        await fetch('http://localhost:8000/api/panic_sell', { method: 'POST' });
+        await fetch(`${getApiUrl()}/api/panic_sell`, { method: 'POST' });
         mutate();
     }
   };
 
   return (
-    <div className="flex min-h-screen bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans">
+    <div className="flex h-screen overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
       <Sidebar />
-      <main className="flex-1 flex flex-col p-8 md:p-16">
+      <main className="flex-1 flex flex-col p-12 md:p-20 overflow-y-auto no-scrollbar">
         <div className="mx-auto max-w-[1200px] w-full space-y-12">
           
           <header className="space-y-2">
