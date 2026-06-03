@@ -173,17 +173,29 @@ def get_all_status():
         }
     return {"assets": data, "vault": vault_balance_idr, "daily_target": daily_target_idr, "total_net_pnl": total_rel, "manual_config": manual_override_config}
 
+def generate_monitor_html():
+    status = get_all_status(); trades = sorted([t for c in AVAILABLE_ASSETS for t in asset_states[c]['trade_history']], key=lambda x: x['time'], reverse=True)[:5]
+    html = f"<html><head><title>Zenith AI Cloud Evolution</title><meta http-equiv='refresh' content='10'><style>body {{ font-family: sans-serif; background: #0b0f1a; color: #f1f5f9; padding: 25px; }} .grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }} .card {{ background: #161b22; padding: 15px; border-radius: 12px; border: 1px solid #30363d; }} .label {{ font-size: 9px; color: #8b949e; font-weight: 800; text-transform: uppercase; }} .value {{ font-size: 22px; font-weight: 900; margin: 8px 0; }} .positive {{ color: #3fb950; }} .negative {{ color: #f85149; }} table {{ width: 100%; border-collapse: collapse; font-size: 11px; }} th, td {{ text-align: left; padding: 12px 10px; border-bottom: 1px solid #30363d; }} .pulse {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; margin-right: 8px; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0.3; }} 100% {{ opacity: 1; }} }} .status-tag {{ font-size: 9px; font-weight: 900; padding: 2px 6px; border-radius: 4px; background: #21262d; color: #c9d1d9; }}</style></head><body>"
+    html += f"<h1>ZENITH <span style='color: #58a6ff;'>CLOUD_EVOLUTION</span></h1><div class='grid'><div class='card'><div class='label'>Cash Balance</div><div class='value'>Rp {status['assets']['BTC']['balance_idr']:,.0f}</div></div><div class='card'><div class='label'>Net Realtime Profit</div><div class='value {'positive' if status['total_net_pnl'] >= 0 else 'negative'}'>Rp {status['total_net_pnl']:,.0f}</div></div><div class='card'><div class='label'>The Vault</div><div class='value' style='color:#f59e0b'>Rp {status['vault']:,.0f}</div></div></div>"
+    html += "<div class='card'><div class='label'>Neural Matrix (24/7 Learning)</div><table><thead><tr><th>Node</th><th>Live Status</th><th>Current Accuracy</th><th>RL Reward</th><th>Synced</th></tr></thead><tbody>"
+    for c, d in status['assets'].items(): html += f"<tr><td>{c}/IDR</td><td><span class='pulse'></span>{d['pulse']}</td><td>{d['mape_1h']:.2f}% (1H) / {d['mape_5m']:.2f}% (5M)</td><td style='color: #3fb950; font-weight: 900;'>Rp {d['rl_score']:,.0f}</td><td><span class='status-tag'>{d['last_training']}</span></td></tr>"
+    html += "</tbody></table></div><div class='card' style='margin-top:20px'><div class='label'>Execution Ledger</div><table><tbody>"
+    for t in trades: html += f"<tr><td>{t['time'][11:19]}</td><td style='color:#58a6ff; font-weight: 800;'>{t['type']}</td><td>Rp {t['price']:,.0f}</td><td><span class='status-tag'>FINALIZED</span></td></tr>"
+    html += "</tbody></table></div></body></html>"
+    return html
+
 # 4. APP & LIFESPAN
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     asyncio.create_task(bot_thinker())
     asyncio.create_task(ticker_loop())
     yield
-    # No stop logic needed here as asyncio handles task cancellation on shutdown
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+@app.get("/monitor", response_class=HTMLResponse)
+def api_monitor(): return generate_monitor_html()
 @app.get("/api/all_status")
 def api_all(): return get_all_status()
 @app.get("/api/status")
@@ -318,7 +330,6 @@ async def ticker_loop():
         try:
             for c in AVAILABLE_ASSETS:
                 ticker = await ex_async.fetch_ticker(f"{c}/IDR"); curr_p = float(ticker['last'])
-                # SAKTI FIX: Added 0.5s delay to OBI fetch to reduce Indodax pressure
                 await asyncio.sleep(0.5)
                 ob = await ex_async.fetch_order_book(f"{c}/IDR", limit=20); mid = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
                 w_b = sum([v * np.exp(-50 * abs(p - mid) / mid) for p, v in ob['bids']]); w_a = sum([v * np.exp(-50 * abs(p - mid) / mid) for p, v in ob['asks']])
@@ -337,10 +348,9 @@ async def ticker_loop():
                         elif res.get('signal') == 'SELL' and global_smoothed_obi[c] < -0.03:
                             if sb.active_position == 'LONG': sb.close_long(c, curr_p)
                             if sb.open_short(c, curr_p, dynamic_lot): pass
-                await asyncio.sleep(1) # Interval between assets
+                await asyncio.sleep(1)
             await asyncio.sleep(5)
-        except Exception:
-            if not stop_event.is_set(): await asyncio.sleep(5)
+        except: await asyncio.sleep(5)
 
 async def bot_thinker():
     print("[INIT] Core Intelligence Setup...")
@@ -353,20 +363,19 @@ async def bot_thinker():
 
     while not stop_event.is_set():
         try:
-            # SAKTI FIX: Limit data diturunkan jadi 100 agar lebih ringan & aman
-            btc_1h_raw = await ex_async.fetch_ohlcv('BTC/IDR', '1h', limit=100)
-            await asyncio.sleep(1.5) # Polite delay
-            btc_5m_raw = await ex_async.fetch_ohlcv('BTC/IDR', '5m', limit=100)
-            await asyncio.sleep(1.5) # Polite delay
+            btc_1h_raw = await ex_async.fetch_ohlcv('BTC/IDR', '1h', limit=150)
+            await asyncio.sleep(1.5)
+            btc_5m_raw = await ex_async.fetch_ohlcv('BTC/IDR', '5m', limit=150)
+            await asyncio.sleep(1.5)
             
             btc_1h = pd.DataFrame(btc_1h_raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             btc_5m = pd.DataFrame(btc_5m_raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
             for coin in AVAILABLE_ASSETS:
                 asset_states[coin]['active_pulse'] = "Thinking..."
-                o1_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '1h', limit=100)
+                o1_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '1h', limit=150)
                 await asyncio.sleep(1.5)
-                o5_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '5m', limit=100)
+                o5_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '5m', limit=150)
                 await asyncio.sleep(1.5)
                 
                 def process_df(ohlcv, btc_df=None):
@@ -378,8 +387,7 @@ async def bot_thinker():
                     if btc_df is not None:
                         temp_btc = btc_df.set_index('timestamp'); df = df.set_index('timestamp').join(temp_btc[['close', 'volume']], rsuffix='_BTC').reset_index()
                         df.rename(columns={'close_BTC': 'btc_close', 'volume_BTC': 'btc_volume'}, inplace=True)
-                    # SAKTI FIX: fillna(0) DIHAPUS agar chart ECharts nggak bikin tiang listrik ke Rp 0!
-                    return df.bfill().ffill()
+                    return df.bfill().ffill().fillna(0)
 
                 df1 = process_df(o1_raw, btc_1h if coin != 'BTC' else None); df5 = process_df(o5_raw, btc_5m if coin != 'BTC' else None)
                 asset_states[coin]['market_data_1h'] = df1.to_dict('records'); asset_states[coin]['market_data_5m'] = df5.to_dict('records')
@@ -393,7 +401,7 @@ async def bot_thinker():
 
                 curr_p = float(df5.iloc[-1]['close']); ts1, ts5 = int(df1.iloc[-1]['timestamp']), int(df5.iloc[-1]['timestamp']); s = asset_states[coin]
 
-                # ONLINE LEARNING
+                # REINFORCED ONLINE LEARNING
                 if ts1 != s['last_ts_1h']:
                     if s['last_input_1h'] is not None:
                         manager.online_learn(coin, '1h', s['last_input_1h'], curr_p)
@@ -402,8 +410,7 @@ async def bot_thinker():
                     new_in = get_inp(df1, '1h'); p_p, _ = manager.predict_tf(coin, '1h', new_in, curr_p)
                     s['prediction_1h'] = {"price": p_p, "confidence": _}
                     s['prediction_history_1h'].append({"timestamp": ts1, "price": p_p})
-                    # SAKTI FIX: Sinkronisasi batas history mengikuti panjang chart (100)
-                    if len(s['prediction_history_1h']) > 100: s['prediction_history_1h'].pop(0)
+                    if len(s['prediction_history_1h']) > 150: s['prediction_history_1h'].pop(0)
                     s['last_ts_1h'], s['last_input_1h'] = ts1, new_in; s['last_training'] = datetime.now().strftime('%H:%M:%S')
 
                 if ts5 != s['last_ts_5m']:
@@ -414,16 +421,14 @@ async def bot_thinker():
                     new_in = get_inp(df5, '5m'); p_p, _ = manager.predict_tf(coin, '5m', new_in, curr_p)
                     s['prediction_5m'] = {"price": p_p, "confidence": _}
                     s['prediction_history_5m'].append({"timestamp": ts5, "price": p_p})
-                    # SAKTI FIX: Sinkronisasi batas history mengikuti panjang chart (100)
-                    if len(s['prediction_history_5m']) > 100: s['prediction_history_5m'].pop(0)
+                    if len(s['prediction_history_5m']) > 150: s['prediction_history_5m'].pop(0)
                     s['last_ts_5m'], s['last_input_5m'] = ts5, new_in; s['last_training'] = datetime.now().strftime('%H:%M:%S')
 
                 s['consensus'] = manager.get_consensus_signal(coin, get_inp(df1, '1h'), get_inp(df5, '5m'), curr_p); s['active_pulse'] = "Monitoring Market"
-
             await asyncio.sleep(15)
         except Exception as e: 
             print(f"[THINKER ERROR] {e}")
             if not stop_event.is_set(): await asyncio.sleep(10)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=7860)

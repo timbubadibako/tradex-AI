@@ -2,11 +2,13 @@
 
 import { Home, BarChart2, PieChart, Settings, ShieldCheck, LogOut, Zap, Bell, User, ChevronLeft, Database, History as HistoryIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEventLog } from "@/hooks/useDashboardData";
+
+import { toggleApiNode, getCurrentNode } from "@/lib/constants";
 
 const menuItems = [
   { icon: Home, label: "Dashboard", href: "/" },
@@ -20,8 +22,14 @@ const menuItems = [
 export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const { events } = useEventLog();
+  const currentNode = getCurrentNode();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <motion.aside 
@@ -49,6 +57,33 @@ export default function Sidebar() {
               <p className="text-[10px] font-black text-sky-500 tracking-[0.2em] uppercase">AI Factory</p>
             </motion.div>
           )}
+        </div>
+
+        {/* Node Switcher Toggle */}
+        <div className={cn("px-4 mb-8", isCollapsed ? "flex justify-center" : "")}>
+          <div className={cn(
+            "p-1.5 rounded-2xl bg-slate-100/50 border border-slate-200/50 flex items-center gap-1",
+            isCollapsed ? "w-fit" : "w-full"
+          )}>
+            <button 
+              onClick={() => toggleApiNode('LOCAL')}
+              className={cn(
+                "flex-1 py-2 rounded-xl text-[9px] font-black uppercase transition-all",
+                mounted && currentNode === 'LOCAL' ? "bg-white text-sky-600 shadow-sm border border-white" : "text-slate-400 hover:text-slate-600"
+              )}
+            >
+              {isCollapsed ? 'L' : 'Local'}
+            </button>
+            <button 
+              onClick={() => toggleApiNode('CLOUD')}
+              className={cn(
+                "flex-1 py-2 rounded-xl text-[9px] font-black uppercase transition-all",
+                mounted && (currentNode === 'CLOUD' || !currentNode) ? "bg-white text-emerald-600 shadow-sm border border-white" : "text-slate-400 hover:text-slate-600"
+              )}
+            >
+              {isCollapsed ? 'C' : 'Cloud'}
+            </button>
+          </div>
         </div>
 
         <div className={cn("mb-10 px-6 flex items-center gap-4", isCollapsed && "px-0 justify-center")}>

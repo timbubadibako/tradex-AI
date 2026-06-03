@@ -4,9 +4,7 @@ import { getApiUrl, getWsUrl } from '@/lib/constants';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-// Global WS State Manager
-let ws: WebSocket | null = null;
-const listeners = new Set<Function>();
+// Global State
 let globalState = {
   status: null,
   allStatus: {},
@@ -14,65 +12,21 @@ let globalState = {
   trades: [],
 };
 
-function initWs() {
-  if (typeof window === 'undefined') return;
-  if (ws && ws.readyState !== WebSocket.CLOSED) return;
-  
-  ws = new WebSocket(getWsUrl());
-  ws.onmessage = (msg) => {
-    try {
-      const data = JSON.parse(msg.data);
-      if (data.type === 'TICK') {
-        globalState = {
-          status: data.status,
-          allStatus: data.all_status,
-          events: data.events,
-          trades: data.trades,
-        };
-        listeners.forEach(cb => cb(globalState));
-      }
-    } catch (e) {
-      console.error("WS Parse Error", e);
-    }
-  };
-  ws.onclose = () => {
-    setTimeout(initWs, 3000); // Reconnect attempt
-  };
-  ws.onerror = () => {
-     ws?.close();
-  };
-}
+// WebSocket DISABLED for HF compatibility
+function initWs() { return; }
 
 export function useBotStatus() {
-  const [data, setData] = useState(globalState.status);
-  
-  useEffect(() => {
-    initWs();
-    const cb = (s: any) => setData(s.status);
-    listeners.add(cb);
-    fetch(`${getApiUrl()}/api/status`).then(r=>r.json()).then(setData).catch(()=>{});
-    return () => { listeners.delete(cb); };
-  }, []);
-  
-  return { status: data, isError: false, isLoading: !data };
+  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/status`, fetcher, { refreshInterval: 5000 });
+  return { status: data, isError: error, isLoading };
 }
 
 export function useAllAssetsStatus() {
-  const [data, setData] = useState<any>(globalState.allStatus);
+  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/all_status`, fetcher, { refreshInterval: 5000 });
   
-  useEffect(() => {
-    initWs();
-    const cb = (s: any) => setData(s.allStatus);
-    listeners.add(cb);
-    fetch(`${getApiUrl()}/api/all_status`).then(r=>r.json()).then(setData).catch(()=>{});
-    return () => { listeners.delete(cb); };
-  }, []);
-  
-  // Backward compatibility for asset iteration
-  const assets = data?.assets || (data && !data.assets ? data : {});
+  const assets = data?.assets || {};
   const vault = data?.vault || 0;
   const totalNetPnl = data?.total_net_pnl || 0;
-  const dailyTarget = data?.daily_target || 100000;
+  const dailyTarget = data?.daily_target || 150000;
   const manualConfig = data?.manual_config || null;
   const cashBalance = Object.values(assets)[0]?.balance_idr || 500000;
 
@@ -83,37 +37,41 @@ export function useAllAssetsStatus() {
     dailyTarget,
     manualConfig,
     cashBalance,
-    isError: false, 
-    isLoading: !data || (typeof data === 'object' && Object.keys(assets).length === 0) 
+    isError: error, 
+    isLoading
   };
 }
 
 export function useEventLog() {
-  const [data, setData] = useState(globalState.events);
-  
-  useEffect(() => {
-    initWs();
-    const cb = (s: any) => setData(s.events);
-    listeners.add(cb);
-    fetch(`${getApiUrl()}/api/events`).then(r=>r.json()).then(setData).catch(()=>{});
-    return () => { listeners.delete(cb); };
-  }, []);
-  
-  return { events: data || [], isError: false, isLoading: !data };
+  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/events`, fetcher, { refreshInterval: 10000 });
+  return { events: data || [], isError: error, isLoading };
 }
 
-export function useTradeHistory() {
-  const [data, setData] = useState(globalState.trades);
-  
-  useEffect(() => {
-    initWs();
-    const cb = (s: any) => setData(s.trades);
-    listeners.add(cb);
-    fetch(`${getApiUrl()}/api/trades`).then(r=>r.json()).then(setData).catch(()=>{});
-    return () => { listeners.delete(cb); };
-  }, []);
-  
-  return { trades: data || [], isError: false, isLoading: !data };
+// SAKTI HYBRID LEDGER: Merges RAM trades and Supabase trades
+export function useUnifiedTrades() {
+  const { data: ramTrades } = useSWR(`${getApiUrl()}/api/trades`, fetcher, { refreshInterval: 5000 });
+  const { data: dbTrades } = useSWR(`${getApiUrl()}/api/persistent_trades`, fetcher, { refreshInterval: 15000 });
+
+  const ram = Array.isArray(ramTrades) ? ramTrades : [];
+  const db = Array.isArray(dbTrades) ? dbTrades : [];
+
+  // Merge and De-duplicate (using time/timestamp as key)
+  const combined = [...ram];
+  db.forEach(dt => {
+    const exists = combined.some(rt => rt.time === dt.time && rt.coin === dt.coin);
+    if (!exists) combined.push(dt);
+  });
+
+  return { 
+    trades: combined.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()),
+    isLoading: !ramTrades && !dbTrades
+  };
+}
+
+// SAKTI PERSISTENCE: Hook to fetch neural evolution milestones
+export function useNeuralCheckpoints() {
+  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/checkpoints`, fetcher, { refreshInterval: 30000 });
+  return { checkpoints: data || [], isError: error, isLoading };
 }
 
 export function useMarketData() {

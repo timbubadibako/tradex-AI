@@ -1,0 +1,13 @@
+ccxt
+pandas
+tensorflow-cpu
+ta
+fastapi
+uvicorn
+joblib
+numpy
+supabase
+python-dotenv
+websockets
+wsproto
+aiohttp

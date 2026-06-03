@@ -7,16 +7,25 @@ import {
 import { useState, useEffect } from "react";
 import GlassCard from "@/components/dashboard/GlassCard";
 import Sidebar from "@/components/dashboard/Sidebar";
-import { useAllAssetsStatus, useEventLog } from "@/hooks/useDashboardData";
+import { useAllAssetsStatus, useEventLog, useBotStatus, useMarketData, useUnifiedTrades, useNeuralCheckpoints } from "@/hooks/useDashboardData";
 import Link from "next/link";
 
 export default function OverviewDashboard() {
-   const { allStatus, totalNetPnl, manualConfig, cashBalance } = useAllAssetsStatus();
+   const { allStatus, totalNetPnl, dailyTarget, manualConfig, cashBalance } = useAllAssetsStatus();
+   const { status } = useBotStatus();
+   const { marketData, prediction } = useMarketData();
+   const { trades } = useUnifiedTrades();
+   const { checkpoints } = useNeuralCheckpoints();
    const { events } = useEventLog();
+   
    const [prevStatus, setPrevStatus] = useState<any>({});
    const [pulses, setPulses] = useState<Record<string, boolean>>({});
 
    const coins = ['BTC', 'ETH', 'SOL'];
+   const currentPrice = marketData && marketData.length > 0 ? marketData[marketData.length - 1].close : 0;
+   const predictedPrice = prediction?.price ?? 0;
+   const targetGapIdr = predictedPrice > 0 && currentPrice > 0 ? predictedPrice - currentPrice : 0;
+   const targetGapPct = currentPrice > 0 ? (targetGapIdr / currentPrice) * 100 : 0;
 
    const avgMape = Object.values(allStatus || {}).reduce((sum: number, s: any) => sum + (((s?.mape_1h || 0) + (s?.mape_5m || 0)) / 2), 0) / (coins.length || 1);
    const activePositionsCount = Object.values(allStatus || {}).filter((s: any) => Math.abs((s?.btc_holdings || 0) - 0.5) > 0.00000001).length;
@@ -27,7 +36,7 @@ export default function OverviewDashboard() {
 
       coins.forEach(c => {
          if (allStatus[c] && prevStatus[c]) {
-            if (allStatus[c].gap_idr_5m !== prevStatus[c].gap_idr_5m || allStatus[c].obi !== prevStatus[c].obi) {
+            if (allStatus[c].net_pnl !== prevStatus[c].net_pnl || allStatus[c].obi !== prevStatus[c].obi) {
                newPulses[c] = true;
                changed = true;
             }
@@ -42,22 +51,35 @@ export default function OverviewDashboard() {
       }
    }, [allStatus]);
 
-   // SAKTI FIX: Amankan array agar tidak memicu slice error
-   const safeEvents = Array.isArray(events) ? events : [];
+   // COMBINE EVENTS AND CHECKPOINTS FOR FEED
+   const combinedFeed = [
+      ...(Array.isArray(events) ? events.map(e => ({ ...e, feedType: 'EVENT' })) : []),
+      ...(Array.isArray(checkpoints) ? checkpoints.map(c => ({ 
+         time: c.created_at, 
+         message: `Model Evolved! ${c.coin} ${c.timeframe} Accuracy: ${c.new_mape.toFixed(2)}%`, 
+         type: 'RECORD',
+         feedType: 'CHECKPOINT'
+      })) : [])
+   ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 20);
 
    const renderDashboard = () => (
       <div className="flex flex-col gap-10 pb-32">
 
          {/* HEADER SECTION: FINANCIAL SNAPSHOT */}
          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Anchor Card: Gelap biar kontras dan fokus */}
-            <GlassCard className="bg-gradient-to-br from-slate-800 to-slate-900 border-none text-white p-10 shadow-2xl h-full flex flex-col justify-center" delay={0.1}>
-               <div className="flex items-center gap-3 mb-8 opacity-80"><Wallet className="w-6 h-6" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Cash Balance</h3></div>
-               <h2 className="text-4xl lg:text-5xl font-black tracking-tighter leading-none mb-6">Rp {(cashBalance || 0).toLocaleString('id-ID')}</h2>
-               <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  {coins.map((c, i) => (
-                     <span key={c}>{c} {(allStatus[c]?.btc_holdings || 0.5).toFixed(4)} {i < coins.length - 1 ? '|' : ''}</span>
-                  ))}
+            
+            {/* Sniper Projection (Card 1) */}
+            <GlassCard className="bg-gradient-to-br from-slate-800 to-slate-900 border-none text-white p-10 shadow-2xl h-full flex flex-col justify-center relative overflow-hidden group" delay={0.1}>
+               <div className="absolute top-0 right-0 -mt-4 -mr-4 w-32 h-32 bg-sky-500/10 rounded-full blur-2xl group-hover:bg-sky-500/20 transition-all duration-700" />
+               <div className="flex items-center gap-3 mb-8 opacity-80 relative z-10"><Target className="w-6 h-6 text-sky-400" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Sniper Projection</h3></div>
+               <h2 className="text-4xl lg:text-5xl font-black tracking-tighter leading-none mb-6 relative z-10">
+                  Rp {predictedPrice > 0 ? Math.round(predictedPrice).toLocaleString('id-ID') : (0).toLocaleString('id-ID')}
+               </h2>
+               <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest relative z-10">
+                  <span className={`px-3 py-1 rounded-full bg-white/10 ${targetGapIdr >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                     {targetGapIdr >= 0 ? '+' : ''}{targetGapPct.toFixed(2)}% GAP
+                  </span>
+                  <span className="text-slate-400">TARGET: {status?.coin || 'BTC'}</span>
                </div>
             </GlassCard>
 
@@ -69,7 +91,7 @@ export default function OverviewDashboard() {
                   </h2>
                </div>
                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] leading-none mt-4">
-                  <span className="text-slate-800">{activePositionsCount}</span> Positions Currently Active
+                  Target: <span className="text-slate-800">Rp {dailyTarget.toLocaleString('id-ID')}</span> / Day
                </p>
             </GlassCard>
 
@@ -107,6 +129,16 @@ export default function OverviewDashboard() {
                   {coins.map((coin, idx) => {
                      const data = allStatus[coin] || {};
                      const isPulsing = pulses[coin];
+                     
+                     // Dynamic Gap Calculations
+                     const cp = data.current_price || 0;
+                     const p1 = data.pred_price_1h || 0;
+                     const p5 = data.pred_price_5m || 0;
+                     const gapIdr1h = p1 > 0 && cp > 0 ? p1 - cp : 0;
+                     const gapPct1h = cp > 0 ? (gapIdr1h / cp) * 100 : 0;
+                     const gapIdr5m = p5 > 0 && cp > 0 ? p5 - cp : 0;
+                     const gapPct5m = cp > 0 ? (gapIdr5m / cp) * 100 : 0;
+
                      return (
                         <div key={coin} className="flex flex-col gap-8">
                            {/* 1H Model Card */}
@@ -130,10 +162,10 @@ export default function OverviewDashboard() {
                                  >
                                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Price Gap (Target)</span>
                                     <div className="flex items-center gap-2">
-                                       <span className={`text-sm font-black ${(data.gap_idr_1h ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                          {(data.gap_idr_1h ?? 0) >= 0 ? '+' : '-'}Rp {Math.abs(data.gap_idr_1h || 0).toLocaleString('id-ID')}
+                                       <span className={`text-sm font-black ${gapIdr1h >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                          {gapIdr1h >= 0 ? '+' : '-'}Rp {Math.abs(gapIdr1h).toLocaleString('id-ID')}
                                        </span>
-                                       <span className="text-[10px] font-bold text-slate-400">({(data.gap_pct_1h || 0).toFixed(2)}%)</span>
+                                       <span className="text-[10px] font-bold text-slate-400">({gapPct1h.toFixed(2)}%)</span>
                                     </div>
                                  </motion.div>
 
@@ -162,10 +194,10 @@ export default function OverviewDashboard() {
                                  >
                                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Price Gap (Target)</span>
                                     <div className="flex items-center gap-2">
-                                       <span className={`text-sm font-black ${(data.gap_idr_5m ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                          {(data.gap_idr_5m ?? 0) >= 0 ? '+' : '-'}Rp {Math.abs(data.gap_idr_5m || 0).toLocaleString('id-ID')}
+                                       <span className={`text-sm font-black ${gapIdr5m >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                          {gapIdr5m >= 0 ? '+' : '-'}Rp {Math.abs(gapIdr5m).toLocaleString('id-ID')}
                                        </span>
-                                       <span className="text-[10px] font-bold text-slate-400">({(data.gap_pct_5m || 0).toFixed(2)}%)</span>
+                                       <span className="text-[10px] font-bold text-slate-400">({gapPct5m.toFixed(2)}%)</span>
                                     </div>
                                  </motion.div>
 
@@ -186,9 +218,9 @@ export default function OverviewDashboard() {
                </div>
                <GlassCard className="flex-1 flex flex-col p-8 min-h-[400px] border-white/80 shadow-xl overflow-hidden bg-white/90 backdrop-blur-xl" delay={0.4}>
                   <div className="space-y-0 max-h-[680px] overflow-y-auto no-scrollbar relative before:absolute before:inset-0 before:ml-[11px] before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-slate-200 before:via-slate-200 before:to-transparent">
-                     {safeEvents.length === 0 ? (
+                     {combinedFeed.length === 0 ? (
                         <div className="py-24 text-center text-slate-300 italic text-[10px] font-black uppercase tracking-[0.2em] relative z-10 bg-white/50 backdrop-blur-sm w-fit mx-auto px-6 py-3 rounded-full border border-white">Waiting for neural breakthroughs...</div>
-                     ) : safeEvents.slice().reverse().map((ev: any, i: number) => (
+                     ) : combinedFeed.map((ev: any, i: number) => (
                         <div key={i} className="relative flex items-center justify-between group py-4">
                            <div className={`flex items-center justify-center w-6 h-6 rounded-full border-4 border-white shrink-0 shadow-sm relative z-10 ${ev.type === 'ERROR' || ev.type === 'WARNING' ? 'bg-amber-500' : ev.type === 'RECORD' ? 'bg-emerald-500' : 'bg-sky-500'}`}>
                               <div className="w-1.5 h-1.5 bg-white rounded-full" />

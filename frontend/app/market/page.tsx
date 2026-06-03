@@ -2,13 +2,13 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  BarChart3, History as HistoryIcon, BrainCircuit, Target, Zap, ChevronDown, CheckCircle2, XCircle, ShieldCheck, Wallet, ArrowUpRight, TrendingUp, AlertTriangle, ShieldAlert
+  Activity, BarChart3, History as HistoryIcon, BrainCircuit, Target, Zap, ChevronDown, CheckCircle2, XCircle, ShieldCheck, Wallet, AlertTriangle, ShieldAlert
 } from "lucide-react";
 import { useState, useEffect, Suspense } from "react";
 import GlassCard from "@/components/dashboard/GlassCard";
 import TradingChart from "@/components/dashboard/TradingChart";
 import Sidebar from "@/components/dashboard/Sidebar";
-import { useBotStatus, useMarketData, useTradeHistory } from "@/hooks/useDashboardData";
+import { useBotStatus, useMarketData, useUnifiedTrades } from "@/hooks/useDashboardData";
 import { useSearchParams } from "next/navigation";
 import { getApiUrl } from "@/lib/constants";
 
@@ -22,60 +22,10 @@ function MarketContent() {
 
   const { status, isLoading: statusLoading } = useBotStatus();
   const { marketData, prediction, predictionHistory, isLoading: marketLoading } = useMarketData();
-  const { trades } = useTradeHistory();
+  const { trades } = useUnifiedTrades();
 
   const isLoading = statusLoading || marketLoading;
   const loadingMessages = ["Initializing Neural Nodes...", "Analyzing Market Delta...", "Finalizing Sync..."];
-
-  useEffect(() => {
-    setMounted(true);
-    const coin = searchParams.get('coin');
-    const tf = searchParams.get('tf');
-
-    const sync = async () => {
-      try {
-        if (coin && coin !== status?.coin) {
-          await fetch(`${getApiUrl()}/api/set_coin?coin=${coin}`, { method: 'POST' });
-        }
-        if (tf && tf !== status?.tf) {
-          await fetch(`${getApiUrl()}/api/set_timeframe?tf=${tf}`, { method: 'POST' });
-        }
-      } catch (err) {
-        console.error(`[NEXT API ERROR] Failed to synchronize params: ${err}`);
-      }
-    };
-    sync();
-  }, [searchParams, status?.coin, status?.tf]);
-
-  if (!mounted) return <div className="h-screen w-full bg-slate-50 animate-pulse" />;
-
-  const handleCoinSwitch = async (coin: string) => {
-    setIsSwitching(true);
-    setShowCoinMenu(false);
-    setLoadingLoadingStep(0);
-    const interval = setInterval(() => setLoadingLoadingStep(p => (p < 2 ? p + 1 : p)), 1000);
-
-    try {
-      await fetch(`${getApiUrl()}/api/set_coin?coin=${coin}`, { method: 'POST' });
-    } catch (err) {
-      console.error(err);
-    }
-
-    setTimeout(() => {
-      clearInterval(interval);
-      setIsSwitching(false);
-    }, 4000);
-  };
-
-  const handleTimeframeSwitch = async (tf: string) => {
-    setIsSwitching(true);
-    try {
-      await fetch(`${getApiUrl()}/api/set_timeframe?tf=${tf}`, { method: 'POST' });
-    } catch (err) {
-      console.error(err);
-    }
-    setTimeout(() => setIsSwitching(false), 2000);
-  };
 
   const currentCoin = status?.coin || 'BTC';
   const tradeList = Array.isArray(trades) ? trades : [];
@@ -99,29 +49,62 @@ function MarketContent() {
   // Pipeline Logic Checking
   const isMacroOk = prediction?.macro !== 'NEUTRAL' && Boolean(prediction?.macro);
   const isTfAligned = prediction?.signal === 'BUY' || prediction?.signal === 'SELL';
-  const isWobiOk = Math.abs(status?.obi ?? 0) > 0.1;
-  const isConfOk = confidenceValue > 0.7;
+  const isWobiOk = Math.abs(status?.obi ?? 0) > 0.05;
+  const isConfOk = confidenceValue > 0.6;
   
-  // Neural Divergence: 1H Trend vs 5M Signal
+  // Signal Conflict: 1H Trend vs 5M Signal
   const isConflict = (prediction?.macro === 'BULLISH' && prediction?.micro === 'SELL') || 
                      (prediction?.macro === 'BEARISH' && prediction?.micro === 'BUY');
+
+  useEffect(() => {
+    setMounted(true);
+    const coin = searchParams.get('coin');
+    const tf = searchParams.get('tf');
+
+    const sync = async () => {
+      try {
+        if (coin && coin !== status?.coin) {
+          await fetch(`${getApiUrl()}/api/set_coin?coin=${coin}`, { method: 'POST' });
+        }
+        if (tf && tf !== status?.tf) {
+          await fetch(`${getApiUrl()}/api/set_timeframe?tf=${tf}`, { method: 'POST' });
+        }
+      } catch (err) {}
+    };
+    sync();
+  }, [searchParams, status?.coin, status?.tf]);
+
+  if (!mounted) return <div className="h-screen w-full bg-slate-50 animate-pulse" />;
+
+  const handleCoinSwitch = async (coin: string) => {
+    setIsSwitching(true); setShowCoinMenu(false); setLoadingLoadingStep(0);
+    const interval = setInterval(() => setLoadingLoadingStep(p => (p < 2 ? p + 1 : p)), 1000);
+    try { await fetch(`${getApiUrl()}/api/set_coin?coin=${coin}`, { method: 'POST' }); } catch (err) {}
+    setTimeout(() => { clearInterval(interval); setIsSwitching(false); }, 4000);
+  };
+
+  const handleTimeframeSwitch = async (tf: string) => {
+    setIsSwitching(true);
+    try { await fetch(`${getApiUrl()}/api/set_timeframe?tf=${tf}`, { method: 'POST' }); } catch (err) {}
+    setTimeout(() => setIsSwitching(false), 2000);
+  };
 
   return (
     <div className="flex flex-col gap-10 pb-32">
 
-      {/* TOP ROW: CORE AI INSIGHTS (Refined Dashboard Style) */}
+      {/* TOP ROW: CORE AI INSIGHTS (Dashboard Style) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         
         {/* CARD 1: Sniper Projection */}
         <GlassCard className="bg-gradient-to-br from-slate-800 to-slate-900 border-none text-white p-10 shadow-2xl h-full flex flex-col justify-center relative overflow-hidden group" delay={0.1}>
           <div className="absolute top-0 right-0 -mt-4 -mr-4 w-32 h-32 bg-sky-500/10 rounded-full blur-2xl group-hover:bg-sky-500/20 transition-all duration-700" />
           <div className="flex items-center gap-3 mb-8 opacity-80 relative z-10"><Target className="w-6 h-6 text-sky-400" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Sniper Projection</h3></div>
-          <h2 className="text-4xl lg:text-5xl font-black tracking-tighter leading-none mb-6 relative z-10">Rp {(prediction?.price ?? 0).toLocaleString('id-ID')}</h2>
+          <h2 className="text-4xl lg:text-5xl font-black tracking-tighter leading-none mb-6 relative z-10">Rp {predictedPrice > 0 ? Math.round(predictedPrice).toLocaleString('id-ID') : 0}</h2>
           <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest relative z-10">
              <span className={`px-3 py-1 rounded-full bg-white/10 ${targetGapIdr >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {sign}{targetGapPct.toFixed(2)}% GAP
              </span>
-             <span className="text-slate-400">Targeting {currentCoin} Evolution</span>
+             <span className="text-slate-400">GAP: {sign}Rp {Math.abs(Math.round(targetGapIdr)).toLocaleString('id-ID')}</span>
           </div>
         </GlassCard>
 
@@ -134,7 +117,7 @@ function MarketContent() {
               </h2>
            </div>
            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] leading-none mt-4">
-              Neural Precision: <span className="text-emerald-600">{winRate.toFixed(1)}% Win Rate</span>
+              Accuracy Rate: <span className="text-emerald-600">{winRate.toFixed(1)}% Win Rate</span>
            </p>
         </GlassCard>
 
@@ -155,7 +138,7 @@ function MarketContent() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
 
-        {/* MAIN CHART AREA */}
+        {/* MAIN CHART AREA (STABLE VERSION) */}
         <GlassCard className="lg:col-span-3 flex flex-col p-6 border-white shadow-2xl relative h-[850px] bg-white/90" delay={0.2}>
           <div className="flex items-center justify-between mb-4 h-[60px] shrink-0">
             <div className="flex items-center gap-3">
@@ -178,12 +161,11 @@ function MarketContent() {
             </div>
             <div className="flex bg-slate-100/50 p-1 rounded-xl border border-white/50 h-fit">
               {['1h', '5m'].map(tf => (
-                <button key={tf} onClick={() => handleTimeframeSwitch(tf)} disabled={isSwitching} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all duration-300 ${status?.tf === tf ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{tf}</button>
+                <button key={tf} onClick={() => handleTimeframeSwitch(tf)} disabled={isSwitching} className={`px-5 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all duration-300 ${status?.tf === tf ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{tf}</button>
               ))}
             </div>
           </div>
 
-          {/* SAKTI FIX: Ubah pembungkus dari 'flex-1' menjadi tinggi absolut 'h-[720px]' agar engine canvas ECharts mengenali dimensi rendering vertikal secara penuh */}
           <div className="relative h-[720px] bg-slate-50/50 rounded-3xl overflow-hidden border border-slate-100 p-2 flex flex-col min-h-0">
             <AnimatePresence>
               {(isLoading || isSwitching) && (
@@ -209,41 +191,40 @@ function MarketContent() {
           </div>
         </GlassCard>
 
-        {/* RIGHT SIDEBAR: SIZED TO MATCH CHART (850PX) */}
+        {/* RIGHT SIDEBAR: LOCKED HEIGHT 850PX */}
         <div className="flex flex-col gap-10 h-[850px]">
-          
-          {/* CARD 1: ASSET SNAPSHOT */}
-          <GlassCard className="flex-1 bg-white/90 border-white shadow-xl p-8 flex flex-col justify-center" delay={0.25}>
-             <div className="flex items-center gap-3 mb-8 text-sky-500 shrink-0"><Wallet className="w-6 h-6" /> <h3 className="font-black text-xs uppercase tracking-widest leading-none">Asset Snapshot</h3></div>
-             <div className="space-y-8 flex-1 flex flex-col justify-center">
+          <GlassCard className="bg-white/90 border-white shadow-xl p-8 flex flex-col flex-1" delay={0.25}>
+            <div className="flex items-center gap-3 mb-6 text-sky-500 shrink-0">
+              <Wallet className="w-6 h-6" />
+              <h3 className="font-black text-xs uppercase tracking-widest leading-none">Asset Snapshot</h3>
+            </div>
+            <div className="flex flex-col justify-center flex-1 gap-6">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest leading-none">Net PnL ({currentCoin})</p>
+                <h2 className={`text-3xl font-black tracking-tighter leading-none ${(status?.net_pnl ?? 0) >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                  Rp {(status?.net_pnl ?? 0).toLocaleString('id-ID')}
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100">
                 <div>
-                   <p className="text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest leading-none">Net PnL ({currentCoin})</p>
-                   <h2 className={`text-3xl font-black tracking-tighter leading-none ${(status?.net_pnl ?? 0) >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-                      Rp {(status?.net_pnl ?? 0).toLocaleString('id-ID')}
-                   </h2>
-                   <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-tighter">Real-time Portfolio Contribution</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Holdings</p>
+                  <p className="text-sm font-black text-slate-800 tabular-nums">{(status?.btc_holdings ?? holdingsCoin).toFixed(4)}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100">
-                   <div>
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Holdings</p>
-                      <p className="text-sm font-black text-slate-800 tabular-nums">{(status?.btc_holdings ?? holdingsCoin).toFixed(4)}</p>
-                   </div>
-                   <div>
-                      <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Win Rate</p>
-                      <p className="text-sm font-black text-emerald-600">{winRate.toFixed(1)}%</p>
-                   </div>
+                <div>
+                  <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Win Rate</p>
+                  <p className="text-sm font-black text-emerald-600">{winRate.toFixed(1)}%</p>
                 </div>
-                <div className="grid grid-cols-2 gap-4 pt-4">
-                  <button onClick={() => fetch(`${getApiUrl()}/api/manual_buy`, { method: 'POST' })} className="py-4 rounded-2xl bg-emerald-500 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-100 active:scale-95 transition-all">Buy</button>
-                  <button onClick={() => fetch(`${getApiUrl()}/api/manual_sell`, { method: 'POST' })} className="py-4 rounded-2xl bg-rose-500 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-rose-100 active:scale-95 transition-all">Sell</button>
-                </div>
-             </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 pt-2">
+                <button onClick={() => fetch(`${getApiUrl()}/api/manual_buy`, { method: 'POST' })} className="py-4 rounded-2xl bg-emerald-500 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-100 active:scale-95 transition-all">Buy</button>
+                <button onClick={() => fetch(`${getApiUrl()}/api/manual_sell`, { method: 'POST' })} className="py-4 rounded-2xl bg-rose-500 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-rose-100 active:scale-95 transition-all">Sell</button>
+              </div>
+            </div>
           </GlassCard>
 
-          {/* CARD 2: LOGIC PIPELINE (4 PERMANENT NODES) */}
-          <GlassCard className="flex-1 bg-white/90 border-white shadow-xl p-8 flex flex-col" delay={0.3}>
+          <GlassCard className="bg-white/90 border-white shadow-xl p-8 flex flex-col flex-1" delay={0.3}>
             <div className="flex items-center gap-3 mb-8 text-slate-800"><ShieldCheck className="w-6 h-6" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Logic Pipeline</h3></div>
-            <div className="space-y-3">
+            <div className="space-y-3 flex-1 flex flex-col justify-center">
               {[
                 { label: 'Macro Consensus', ok: isMacroOk, err: false },
                 { label: 'WOBI Strength', ok: isWobiOk, err: false },
@@ -264,12 +245,6 @@ function MarketContent() {
                 </div>
               ))}
             </div>
-            {isConflict && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-auto p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-600" />
-                <span className="text-[9px] font-black text-amber-700 uppercase tracking-tight leading-tight">Neural Divergence Detected</span>
-              </motion.div>
-            )}
           </GlassCard>
         </div>
       </div>
