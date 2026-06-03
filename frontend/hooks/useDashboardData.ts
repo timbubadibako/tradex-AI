@@ -1,23 +1,34 @@
-import { useState, useEffect } from 'react';
 import useSWR from 'swr';
-import { getApiUrl, getWsUrl } from '@/lib/constants';
+import { getApiUrl } from '@/lib/constants';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
-// Global State
-let globalState = {
-  status: null,
-  allStatus: {},
-  events: [],
-  trades: [],
+// SAKTI NULL-SAFE FETCHER
+const fetcher = async (url: string) => {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    console.error(`Fetch error for ${url}:`, e);
+    return null;
+  }
 };
-
-// WebSocket DISABLED for HF compatibility
-function initWs() { return; }
 
 export function useBotStatus() {
   const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/status`, fetcher, { refreshInterval: 5000 });
-  return { status: data, isError: error, isLoading };
+  return { 
+    status: data || { 
+      coin: 'BTC', 
+      tf: '1h', 
+      balance_idr: 0, 
+      btc_holdings: 0.5, 
+      prediction: { price: 0, confidence: 0 },
+      net_pnl: 0,
+      winrate: 0,
+      error_rate: 0
+    }, 
+    isError: error, 
+    isLoading 
+  };
 }
 
 export function useAllAssetsStatus() {
@@ -28,7 +39,7 @@ export function useAllAssetsStatus() {
   const totalNetPnl = data?.total_net_pnl || 0;
   const dailyTarget = data?.daily_target || 150000;
   const manualConfig = data?.manual_config || null;
-  const cashBalance = Object.values(assets)[0]?.balance_idr || 500000;
+  const cashBalance = data?.total_cash || Object.values(assets)[0]?.balance_idr || 0;
 
   return { 
     allStatus: assets, 
@@ -75,8 +86,7 @@ export function useNeuralCheckpoints() {
 }
 
 export function useMarketData() {
-  // Chart is still polled slowly because it's heavy and doesn't need millisecond ticks
-  const { data, error, isLoading, mutate } = useSWR(`${getApiUrl()}/api/chart`, fetcher, { refreshInterval: 10000 });
+  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/chart`, fetcher, { refreshInterval: 10000 });
   return { 
     marketData: data?.ohlcv || [], 
     prediction: data?.prediction || null,

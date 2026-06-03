@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1440, initial-scale=1.0"> <!-- Forced Desktop Scale -->
+    <title>Zenith AI: Colony Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #020617;
+            --glass-bg: rgba(255, 255, 255, 0.02);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --accent: #38bdf8;
+            --emerald: #10b981;
+            --rose: #f43f5e;
+            --amber: #f59e0b;
+        }
+        body {
+            background-color: var(--bg);
+            color: #f8fafc;
+            font-family: 'Inter', sans-serif;
+            min-width: 1440px; /* Force Desktop only */
+            overflow-x: hidden;
+        }
+        h1, h2, h3, h4 { font-family: 'Outfit', sans-serif; letter-spacing: -0.01em; }
+        
+        /* SHARPER CLASSY GLASS */
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+        }
+
+        /* STABLE PULSING NEON BLOBS (NO POSITION SHIFT) */
+        .neon-blob {
+            position: absolute;
+            width: 800px;
+            height: 800px;
+            border-radius: 50%;
+            filter: blur(140px);
+            opacity: 0.08;
+            z-index: -1;
+            animation: pulse-light 8s infinite alternate ease-in-out;
+        }
+        .blob-1 { background: var(--accent); top: -200px; left: -100px; }
+        .blob-2 { background: #8b5cf6; bottom: -200px; right: -100px; animation-delay: -4s; }
+
+        @keyframes pulse-light {
+            0% { transform: scale(1); opacity: 0.05; }
+            100% { transform: scale(1.1); opacity: 0.12; }
+        }
+
+        /* CONTENT TRANSITIONS */
+        .colony-content {
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .fade-out { opacity: 0; transform: translateY(10px); }
+        .fade-in { opacity: 1; transform: translateY(0); }
+
+        /* ACTIVE TRANSACTION GLOW */
+        .active-trade-glow {
+            box-shadow: 0 0 30px rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.4) !important;
+            background: rgba(56, 189, 248, 0.03) !important;
+        }
+        .pulse-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: blink 1.5s infinite;
+        }
+        @keyframes blink { 0% { opacity: 0.2; } 50% { opacity: 1; box-shadow: 0 0 10px var(--accent); } 100% { opacity: 0.2; } }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="flex h-screen relative selection:bg-sky-500/20">
+    
+    <!-- Background Blobs -->
+    <div class="neon-blob blob-1"></div>
+    <div class="neon-blob blob-2"></div>
+
+    <!-- Sidebar -->
+    <aside class="w-80 h-full flex flex-col p-10 border-r border-white/5 bg-[#010413]/80 backdrop-blur-2xl">
+        <div class="flex items-center gap-4 mb-20">
+            <div class="w-12 h-12 rounded-2xl bg-sky-500 flex items-center justify-center shadow-xl shadow-sky-500/20">
+                <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <div>
+                <h1 class="text-2xl font-black tracking-tighter">ZENITH <span class="text-sky-400">AI</span></h1>
+                <p class="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em]">Neural Command</p>
+            </div>
+        </div>
+
+        <nav class="space-y-4 flex-1">
+            <a href="#" class="flex items-center gap-4 px-6 py-4 rounded-xl bg-white/5 text-white border border-white/5 font-bold shadow-2xl">
+                Dashboard
+            </a>
+            <a href="#" class="flex items-center gap-4 px-6 py-4 rounded-xl text-slate-500 hover:text-white transition-all">
+                Market Data
+            </a>
+            <a href="#" class="flex items-center gap-4 px-6 py-4 rounded-xl text-slate-500 hover:text-white transition-all">
+                Portfolio
+            </a>
+            <a href="#" class="flex items-center gap-4 px-6 py-4 rounded-xl text-slate-500 hover:text-white transition-all">
+                Management
+            </a>
+        </nav>
+
+        <div class="mt-auto pt-8 border-t border-white/5">
+            <div class="flex items-center gap-4 mb-6">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 border border-white/10"></div>
+                <div>
+                    <p class="text-[10px] font-black text-slate-500 uppercase">Operator</p>
+                    <p class="text-sm font-bold text-white">JRILYM_CFO</p>
+                </div>
+            </div>
+            <button class="w-full py-4 rounded-xl bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all">System Shutdown</button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col overflow-y-auto no-scrollbar p-16">
+        <div class="max-w-[1700px] mx-auto w-full space-y-16">
+            
+            <!-- Global Header -->
+            <header class="flex justify-between items-end">
+                <div class="space-y-2">
+                    <h2 class="text-4xl font-black tracking-tighter uppercase">Collective <span class="text-sky-400">Equity</span></h2>
+                    <p class="text-slate-500 text-lg font-light tracking-wide italic">"Navigating market candles with neural precision."</p>
+                </div>
+                
+                <div class="flex gap-6">
+                    <div class="glass px-8 py-5 border-white/10 flex flex-col justify-center">
+                        <span class="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Operational Node</span>
+                        <div class="flex items-center gap-2">
+                            <div class="pulse-dot"></div>
+                            <span class="text-xs font-black text-white uppercase tracking-tighter">CLOUD_SINGULARITY_V2</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Hero: Collective Balance -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 glass p-12 bg-gradient-to-br from-white/[0.03] to-sky-500/[0.01] flex flex-col justify-center shadow-2xl relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 -mt-20 -mr-20 w-80 h-80 bg-sky-400/5 rounded-full blur-[100px] group-hover:bg-sky-400/10 transition-all duration-1000"></div>
+                    <span class="text-[10px] font-black text-slate-500 uppercase tracking-[0.5em] mb-6 relative z-10">Total Aggregate Balance</span>
+                    <h2 class="text-7xl font-black tracking-tighter mb-6 relative z-10">Rp 5,420,800.00</h2>
+                    <div class="flex items-center gap-6 relative z-10">
+                        <div class="flex flex-col">
+                            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Realized Net Gain</span>
+                            <span class="text-emerald-400 font-black text-xl tracking-tight">+Rp 120,400.00</span>
+                        </div>
+                        <div class="w-px h-10 bg-white/10"></div>
+                        <div class="flex flex-col">
+                            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Portfolio Velocity</span>
+                            <span class="text-sky-400 font-black text-xl tracking-tight">1.25% <span class="text-xs opacity-50">ROI</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass p-12 flex flex-col justify-center border-amber-500/10 bg-gradient-to-br from-white/[0.02] to-amber-500/[0.03]">
+                    <span class="text-[10px] font-black text-amber-500/60 uppercase tracking-[0.5em] mb-8">Harvested Gains</span>
+                    <h3 class="text-5xl font-black tracking-tighter mb-4 text-amber-500">Rp 1.2M</h3>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-relaxed">
+                        30% PROFIT RESERVE ISOLATED FROM OPERATIONAL LIQUIDITY
+                    </p>
+                </div>
+            </div>
+
+            <!-- Colony Control Area -->
+            <section class="space-y-10">
+                <div class="flex justify-between items-center border-b border-white/5 pb-10">
+                    <div class="glass p-1.5 flex gap-2 w-fit">
+                        <button onclick="switchColony('crypto')" class="colony-btn px-12 py-4 rounded-xl bg-white/5 text-white font-black text-xs border border-white/10 shadow-xl tracking-widest">CRYPTO_NODE</button>
+                        <button onclick="switchColony('forex')" class="colony-btn px-12 py-4 rounded-xl text-slate-500 font-black text-xs hover:text-slate-300 transition-all tracking-widest">FOREX_NODE</button>
+                        <button onclick="switchColony('stocks')" class="colony-btn px-12 py-4 rounded-xl text-slate-500 font-black text-xs hover:text-slate-300 transition-all tracking-widest">STOCKS_NODE</button>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Global Target</span>
+                        <span class="text-lg font-black text-sky-400">Rp 150,000 / Day</span>
+                    </div>
+                </div>
+
+                <!-- DYNAMIC COLONY CARDS -->
+                <div id="colony-matrix" class="colony-content grid grid-cols-1 md:grid-cols-3 gap-10">
+                    <!-- Cards will be injected/swapped here -->
+                    
+                    <!-- Node Card 1 (Active Example) -->
+                    <div class="glass p-10 active-trade-glow border-white/5 hover:bg-white/[0.04] transition-all cursor-pointer group">
+                        <div class="flex justify-between mb-10">
+                            <span class="text-[9px] font-black text-sky-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                <div class="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_8px_#38bdf8]"></div>
+                                TRANSACTION ACTIVE
+                            </span>
+                            <span class="text-[10px] font-black text-slate-600 uppercase">1H MACRO</span>
+                        </div>
+                        <h4 class="text-3xl font-black mb-4 tracking-tighter">BTC <span class="text-slate-600 text-xl">/IDR</span></h4>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-[9px] font-bold text-slate-500 uppercase">Neural Accuracy</span>
+                                    <span class="text-[10px] font-black text-emerald-400">0.42% MAPE</span>
+                                </div>
+                                <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-full bg-emerald-500 w-[92%] shadow-[0_0_10px_rgba(16,185,129,0.4)]"></div>
+                                </div>
+                            </div>
+                            <div class="pt-4 border-t border-white/5 flex justify-between items-center">
+                                <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Projected Gap</span>
+                                <span class="text-emerald-400 font-black tracking-tight">+Rp 12,450.00 <span class="text-[8px] opacity-60">(1.2%)</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Node Card 2 -->
+                    <div class="glass p-10 border-white/5 hover:bg-white/[0.04] transition-all cursor-pointer group">
+                        <div class="flex justify-between mb-10">
+                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">NODE_STANDBY</span>
+                            <span class="text-[10px] font-black text-slate-600 uppercase">5M MICRO</span>
+                        </div>
+                        <h4 class="text-3xl font-black mb-4 tracking-tighter">ETH <span class="text-slate-600 text-xl">/IDR</span></h4>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-[9px] font-bold text-slate-500 uppercase">Neural Accuracy</span>
+                                    <span class="text-[10px] font-black text-emerald-400">0.85% MAPE</span>
+                                </div>
+                                <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-full bg-sky-500 w-[85%]"></div>
+                                </div>
+                            </div>
+                            <div class="pt-4 border-t border-white/5 flex justify-between items-center">
+                                <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Projected Gap</span>
+                                <span class="text-rose-500 font-black tracking-tight">-Rp 4,200.00 <span class="text-[8px] opacity-60">(0.5%)</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Node Card 3 -->
+                    <div class="glass p-10 border-white/5 hover:bg-white/[0.04] transition-all cursor-pointer group">
+                        <div class="flex justify-between mb-10">
+                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">NODE_STANDBY</span>
+                            <span class="text-[10px] font-black text-slate-600 uppercase">1H MACRO</span>
+                        </div>
+                        <h4 class="text-3xl font-black mb-4 tracking-tighter">SOL <span class="text-slate-600 text-xl">/IDR</span></h4>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-[9px] font-bold text-slate-500 uppercase">Neural Accuracy</span>
+                                    <span class="text-[10px] font-black text-emerald-400">1.15% MAPE</span>
+                                </div>
+                                <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-full bg-sky-500 w-[78%]"></div>
+                                </div>
+                            </div>
+                            <div class="pt-4 border-t border-white/5 flex justify-between items-center">
+                                <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Projected Gap</span>
+                                <span class="text-slate-400 font-black tracking-tight">+Rp 150.00 <span class="text-[8px] opacity-60">(0.02%)</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <script>
+        function switchColony(type) {
+            const matrix = document.getElementById('colony-matrix');
+            const btns = document.querySelectorAll('.colony-btn');
+            
+            // Apply Fade-Out
+            matrix.classList.add('fade-out');
+            
+            setTimeout(() => {
+                // Change Buttons Style (Simulated active state)
+                btns.forEach(b => {
+                    b.classList.remove('bg-white/5', 'text-white', 'border-white/10', 'shadow-xl');
+                    b.classList.add('text-slate-500');
+                    if(b.innerText.toLowerCase().includes(type)) {
+                        b.classList.add('bg-white/5', 'text-white', 'border-white/10', 'shadow-xl');
+                        b.classList.remove('text-slate-500');
+                    }
+                });
+
+                // Simulate Data Loading / Swapping Is Content
+                if(type !== 'crypto') {
+                    matrix.innerHTML = `
+                        <div class="lg:col-span-3 py-32 text-center glass border-dashed border-white/10">
+                            <p class="text-[10px] font-black text-slate-600 uppercase tracking-[0.5em] mb-4">Neural Node Locked</p>
+                            <h3 class="text-xl font-bold text-slate-400">PHASE 4 EXPANSION REQUIRED</h3>
+                            <p class="text-xs text-slate-500 mt-4 max-w-sm mx-auto">Colony ${type.toUpperCase()} requires active API integration and model pre-training before activation.</p>
+                        </div>
+                    `;
+                } else {
+                    location.reload(); // Quick reset to crypto view for demo
+                }
+
+                // Apply Fade-In
+                matrix.classList.remove('fade-out');
+                matrix.classList.add('fade-in');
+            }, 500);
+        }
+    </script>
+
+</body>
+</html>

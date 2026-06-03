@@ -9,70 +9,70 @@ import GlassCard from "@/components/dashboard/GlassCard";
 import Sidebar from "@/components/dashboard/Sidebar";
 import { supabase } from "@/lib/supabase";
 
-export default function BotManagement() {
+// SAKTI GRANULAR DEBUG TOOLTIP
+function DebugTooltip({ endpoint, fields, isNull }: { endpoint: string, fields: string[], isNull: boolean }) {
+  return (
+    <div className={`absolute top-4 right-6 z-50 group`}>
+       {isNull && <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shadow-[0_0_12px_#f43f5e]" />}
+       <div className="absolute right-0 top-6 w-72 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-[#0f172a]/95 backdrop-blur-2xl border border-white/10 p-5 rounded-2xl shadow-2xl pointer-events-none text-left translate-y-2 group-hover:translate-y-0">
+          <div className="flex items-center gap-2 mb-3">
+             <div className="w-1 h-3 bg-sky-500 rounded-full" />
+             <p className="text-[10px] font-black text-white uppercase tracking-widest leading-none">Neural Data Spec</p>
+          </div>
+          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Target Endpoint</p>
+          <code className="text-[10px] text-sky-400 bg-sky-500/10 px-2 py-1 rounded block mb-4 border border-sky-500/20">{endpoint}</code>
+          
+          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Required Payload Fields</p>
+          <div className="flex flex-wrap gap-1.5">
+             {fields.map(f => (
+                <span key={f} className="text-[8px] font-black text-slate-300 bg-white/5 px-2 py-1 rounded-md border border-white/5">{f}</span>
+             ))}
+          </div>
+       </div>
+    </div>
+  );
+}
+
+export default function BotManagementPage() {
     const [selectedCoin, setSelectedCoin] = useState("BTC");
     const [latestFiles, setLatestFiles] = useState<any[]>([]);
     const [historyFiles, setHistoryFiles] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [totalSizeMB, setTotalSizeMB] = useState(0);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => { setMounted(true); }, []);
 
     const coins = ["BTC", "ETH", "SOL"];
     const STORAGE_LIMIT_MB = 1024; // 1GB Free Tier
 
-    // ==========================================
-    // 1. PERBAIKAN LOGIKA FETCH (Aman dari Undefined & Casing)
-    // ==========================================
     const fetchFiles = async () => {
         setLoading(true);
         try {
             const coinPath = selectedCoin.toUpperCase();
+            const { data: latest } = await supabase.storage.from('model-brains').list(`${coinPath}/latest`);
+            setLatestFiles(latest ? latest.filter(f => f.name && f.name !== '.placeholder') : []);
 
-            // Fetch Active Models
-            const { data: latest, error: latestError } = await supabase.storage
-                .from('model-brains')
-                .list(`${coinPath}/latest`);
-
-            if (latestError) throw latestError;
-
-            // Proteksi ekstra: pastikan data ada dan saring file sampah bawaan system
-            const validLatest = latest ? latest.filter(f => f.name && f.name !== '.placeholder' && f.id !== null) : [];
-            setLatestFiles(validLatest);
-
-            // Fetch Historical Backups
-            const { data: history, error: historyError } = await supabase.storage
-                .from('model-brains')
-                .list(`${coinPath}/history`, {
+            const { data: history } = await supabase.storage.from('model-brains').list(`${coinPath}/history`, {
                     sortBy: { column: 'name', order: 'desc' }
                 });
+            setHistoryFiles(history ? history.filter(f => f.name && f.name !== '.placeholder') : []);
 
-            if (historyError) throw historyError;
-            const validHistory = history ? history.filter(f => f.name && f.name !== '.placeholder' && f.id !== null) : [];
-            setHistoryFiles(validHistory);
-
-            // Calculate Global Quota secara aman dengan optional chaining
             let totalBytes = 0;
             for (const c of coins) {
-                const { data: lFiles } = await supabase.storage.from('model-brains').list(`${c.toUpperCase()}/latest`);
-                const { data: hFiles } = await supabase.storage.from('model-brains').list(`${c.toUpperCase()}/history`);
-
-                if (lFiles) lFiles.forEach(f => totalBytes += (f.metadata?.size || 0));
-                if (hFiles) hFiles.forEach(f => totalBytes += (f.metadata?.size || 0));
+                const { data: l } = await supabase.storage.from('model-brains').list(`${c.toUpperCase()}/latest`);
+                const { data: h } = await supabase.storage.from('model-brains').list(`${c.toUpperCase()}/history`);
+                if (l) l.forEach(f => totalBytes += (f.metadata?.size || 0));
+                if (h) h.forEach(f => totalBytes += (f.metadata?.size || 0));
             }
             setTotalSizeMB(totalBytes / (1024 * 1024));
-
-        } catch (e) {
-            console.error("❌ Zenith Storage Sync Error:", e);
-        } finally {
-            setLoading(false);
-        }
+        } catch (e) { console.error(e); } finally { setLoading(false); }
     };
 
-    useEffect(() => {
-        fetchFiles();
-    }, [selectedCoin]);
+    useEffect(() => { fetchFiles(); }, [selectedCoin]);
 
     const deleteFile = async (name: string) => {
-        if (confirm(`Delete ${name} permanently?`)) {
+        if (confirm(`Delete ${name}?`)) {
             await supabase.storage.from('model-brains').remove([`${selectedCoin}/history/${name}`]);
             fetchFiles();
         }
@@ -80,69 +80,69 @@ export default function BotManagement() {
 
     const usedPercentage = (totalSizeMB / STORAGE_LIMIT_MB) * 100;
 
+    if (!mounted) return <div className="h-screen w-full bg-[#020617]" />;
+
     return (
-      <div className="flex h-screen overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
+      <div className="flex h-screen overflow-hidden bg-[#020617] font-sans selection:bg-sky-500/20">
         <Sidebar />
-        <main className="flex-1 flex flex-col p-12 md:p-20 overflow-y-auto no-scrollbar">
-          <div className="mx-auto max-w-[1800px] w-full space-y-12">
+        <main className="flex-1 flex flex-col p-12 md:p-20 overflow-y-auto no-scrollbar relative">
+          <div className="mx-auto max-w-[1800px] w-full space-y-12 relative z-10">
 
                     <header className="flex justify-between items-end">
                         <div className="space-y-2">
-                            <div className="flex items-center gap-3 text-sky-500 mb-2">
-                                <Database className="w-8 h-8" />
-                                <h1 className="text-4xl font-black tracking-tighter uppercase text-slate-900">Brain Management</h1>
+                            <div className="flex items-center gap-4 text-sky-500 mb-3">
+                                <Database className="w-10 h-10" />
+                                <h1 className="text-5xl font-black tracking-tighter uppercase text-white">Brain <span className="text-sky-400">Control</span></h1>
                             </div>
-                            <p className="text-slate-400 font-medium text-lg tracking-tight">Monitor and purge evolutionary knowledge archives.</p>
+                            <p className="text-slate-500 font-light text-xl tracking-tight leading-none italic">Neural weight monitoring and evolutionary archive synchronization.</p>
                         </div>
-                        <div className="bg-white/80 backdrop-blur-xl border border-white px-8 py-6 rounded-[32px] shadow-xl min-w-[300px]">
-                            <div className="flex justify-between mb-4 items-end">
-                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Cloud Storage Quota</p>
-                                <p className="text-sm font-black text-slate-800">{totalSizeMB.toFixed(1)} MB <span className="text-slate-400 font-bold">/ 1 GB</span></p>
+                        <div className="bg-white/[0.02] backdrop-blur-3xl border border-white/10 px-10 py-8 rounded-[32px] shadow-2xl min-w-[350px] relative group">
+                            <DebugTooltip endpoint="Supabase Storage RPC" fields={['metadata.size', 'bucket_list']} isNull={totalSizeMB === 0} />
+                            <div className="flex justify-between mb-5 items-end">
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] leading-none">Cloud Knowledge Quota</p>
+                                <p className="text-sm font-black text-slate-200">{totalSizeMB.toFixed(1)} MB <span className="text-slate-600 font-bold">/ 1 GB</span></p>
                             </div>
-                            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-50 shadow-inner">
-                                <motion.div initial={{ width: 0 }} animate={{ width: `${usedPercentage}%` }} className={`h-full shadow-sm ${usedPercentage > 80 ? 'bg-rose-500' : 'bg-sky-500'}`} />
+                            <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 shadow-inner">
+                                <motion.div initial={{ width: 0 }} animate={{ width: `${usedPercentage}%` }} className={`h-full shadow-lg ${usedPercentage > 80 ? 'bg-rose-500 shadow-rose-500/40' : 'bg-sky-500 shadow-sky-500/40'}`} />
                             </div>
                         </div>
                     </header>
 
-                    <div className="flex gap-4 p-2 bg-slate-200/50 rounded-[28px] w-fit border border-white/60 shadow-inner">
+                    <div className="flex gap-4 p-2 bg-white/[0.01] rounded-[28px] w-fit border border-white/5 shadow-inner">
                         {coins.map(c => (
-                            <button key={c} onClick={() => setSelectedCoin(c)} className={`px-10 py-4 rounded-[20px] text-xs font-black uppercase tracking-widest transition-all ${selectedCoin === c ? 'bg-white text-sky-600 shadow-xl border border-white' : 'text-slate-500 hover:text-slate-700'}`}>{c} Node</button>
+                            <button key={c} onClick={() => setSelectedCoin(c)} className={`px-12 py-4 rounded-[20px] text-[11px] font-black uppercase tracking-[0.2em] transition-all ${selectedCoin === c ? 'bg-white/10 text-white shadow-2xl border border-white/10' : 'text-slate-600 hover:text-slate-400'}`}>{c}_NODE</button>
                         ))}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                         <div className="lg:col-span-2 space-y-12">
-                            <section className="space-y-6">
-                                <div className="flex items-center gap-3 px-2 text-slate-800">
-                                    <Activity className="w-6 h-6 text-sky-500" />
-                                    <h3 className="font-black text-sm uppercase tracking-[0.2em]">Active Neural Weights (Latest)</h3>
+                            <section className="space-y-8 relative group">
+                                <DebugTooltip endpoint="Supabase: [COIN]/latest/" fields={['name', 'metadata', 'created_at']} isNull={latestFiles.length === 0} />
+                                <div className="flex items-center gap-4 px-2 text-slate-300">
+                                    <Activity className="w-7 h-7 text-sky-500 opacity-60" />
+                                    <h3 className="font-black text-sm uppercase tracking-[0.4em]">Active Neural Weights (Latest)</h3>
                                 </div>
-                                <GlassCard className="p-0 border-white shadow-xl bg-white/80 backdrop-blur-xl overflow-hidden" delay={0.1}>
-                                    <table className="w-full text-left">
-                                        <thead className="bg-slate-100/50 border-b border-slate-200/60">
+                                <GlassCard className="p-0 border-white/5 shadow-2xl bg-white/[0.005] overflow-hidden" delay={0.1}>
+                                    <table className="w-full text-left border-separate border-spacing-0">
+                                        <thead className="bg-white/[0.02] border-b border-white/5">
                                             <tr className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                                <th className="px-8 py-5">File Identifier</th>
-                                                <th className="px-6 py-5">Size</th>
-                                                <th className="px-6 py-5">Last Synced</th>
-                                                <th className="px-8 py-5 text-right">Status</th>
+                                                <th className="px-10 py-6">Neural Identifier</th>
+                                                <th className="px-8 py-6 text-center">Density (Size)</th>
+                                                <th className="px-10 py-6 text-right">Synchronization Status</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="text-sm font-bold text-slate-700">
-                                            {latestFiles.length === 0 ? <tr><td colSpan={4} className="py-16 text-center text-slate-400 italic uppercase tracking-widest text-xs font-black">Empty cloud node</td></tr> : latestFiles.map((f, i) => (
-                                                <tr key={i} className="border-b border-slate-100/50 group hover:bg-slate-50/50 transition-colors">
-                                                    <td className="px-8 py-6 flex items-center gap-4">
-                                                        <div className="p-2.5 bg-sky-50 rounded-xl text-sky-500 border border-sky-100"><Cpu className="w-5 h-5" /></div>
-                                                        <span className="tracking-tight font-mono text-sm">{f.name}</span>
+                                        <tbody className="text-sm font-bold text-slate-400">
+                                            {latestFiles.length === 0 ? <tr><td colSpan={3} className="py-24 text-center text-slate-600 italic uppercase tracking-[0.3em] text-sm font-black animate-pulse">Scanning cloud synapses...</td></tr> : latestFiles.map((f, i) => (
+                                                <tr key={i} className="group hover:bg-white/[0.01] transition-colors">
+                                                    <td className="px-10 py-8 flex items-center gap-6 text-slate-100 font-mono text-xs">
+                                                        <div className="p-3 bg-sky-500/10 rounded-xl text-sky-400 border border-sky-500/20"><Cpu className="w-5 h-5" /></div> 
+                                                        {f.name}
                                                     </td>
-                                                    <td className="px-6 py-6 text-xs text-slate-500 font-mono">
+                                                    <td className="px-8 py-8 text-center text-xs text-slate-600 font-mono">
                                                         {f.metadata?.size ? (f.metadata.size / (1024 * 1024)).toFixed(2) : "0.00"} MB
                                                     </td>
-                                                    <td className="px-6 py-6 text-[11px] text-slate-500 uppercase font-mono">
-                                                        {f.created_at || f.updated_at ? new Date(f.created_at || f.updated_at).toLocaleString('id-ID') : 'N/A'}
-                                                    </td>
-                                                    <td className="px-8 py-6 text-right">
-                                                       <span className="px-3 py-1.5 bg-sky-500/10 text-sky-600 border border-sky-500/20 text-[10px] font-black rounded-lg uppercase tracking-widest">Active</span>
+                                                    <td className="px-10 py-8 text-right">
+                                                       <span className="px-4 py-2 bg-sky-500/10 text-sky-400 border border-sky-500/20 text-[9px] font-black rounded-xl uppercase tracking-widest shadow-lg">Tactical Alpha Active</span>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -151,45 +151,37 @@ export default function BotManagement() {
                                 </GlassCard>
                             </section>
 
-                            <section className="space-y-6">
-                                <div className="flex items-center gap-3 px-2 text-slate-800">
-                                    <HistoryIcon className="w-6 h-6 text-purple-500" />
-                                    <h3 className="font-black text-sm uppercase tracking-[0.2em]">Evolutionary Archive (History)</h3>
+                            <section className="space-y-8 relative group">
+                                <DebugTooltip endpoint="Supabase: [COIN]/history/" fields={['name', 'mape_label', 'created_at']} isNull={historyFiles.length === 0} />
+                                <div className="flex items-center gap-4 px-2 text-slate-300">
+                                    <HistoryIcon className="w-7 h-7 text-purple-500 opacity-60" />
+                                    <h3 className="font-black text-sm uppercase tracking-[0.4em]">Evolutionary Archive (History)</h3>
                                 </div>
-                                <GlassCard className="p-0 border-white shadow-xl bg-white/80 backdrop-blur-xl overflow-hidden" delay={0.2}>
+                                <GlassCard className="p-0 border-white/5 shadow-2xl bg-white/[0.005] overflow-hidden" delay={0.2}>
                                     <div className="max-h-[600px] overflow-y-auto no-scrollbar">
-                                        <table className="w-full text-left">
-                                            <thead className="bg-slate-100/50 border-b border-slate-200/60 sticky top-0 z-10 backdrop-blur-md">
+                                        <table className="w-full text-left border-separate border-spacing-0">
+                                            <thead className="bg-white/[0.02] border-b border-white/5 sticky top-0 z-10 backdrop-blur-md">
                                                 <tr className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                                    <th className="px-8 py-5">Knowledge Snapshot</th>
-                                                    <th className="px-6 py-5">Accuracy Metric</th>
-                                                    <th className="px-6 py-5">Size</th>
-                                                    <th className="px-8 py-5 text-right">Action</th>
+                                                    <th className="px-10 py-6">Neural Milestone</th>
+                                                    <th className="px-8 py-6 text-center">Precision Metric</th>
+                                                    <th className="px-10 py-6 text-right">Destructive Action</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="text-sm font-bold text-slate-700">
-                                                {historyFiles.length === 0 ? <tr><td colSpan={4} className="py-24 text-center text-slate-400 italic uppercase tracking-widest text-xs font-black">Scanning timeline...</td></tr> : historyFiles.map((f, i) => {
-                                                    const parts = f.name.split('_');
-                                                    const timestamp = parts[0];
-                                                    const timeframe = parts[1] || 'N/A';
+                                            <tbody className="text-sm font-bold text-slate-400">
+                                                {historyFiles.length === 0 ? <tr><td colSpan={3} className="py-32 text-center text-slate-700 italic uppercase tracking-[0.3em] text-sm font-black animate-pulse">Restoring temporal sequence...</td></tr> : historyFiles.map((f, i) => {
                                                     const mape = f.name.includes('mape_') ? f.name.split('mape_')[1].replace('.keras', '') : 'N/A';
-
                                                     return (
-                                                        <tr key={i} className="border-b border-slate-100/50 hover:bg-slate-50/80 transition-colors group">
-                                                            <td className="px-8 py-6 flex items-center gap-4">
-                                                                <div className="p-2.5 bg-purple-50 border border-purple-100 rounded-xl text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-all shadow-sm"><FileJson className="w-5 h-5" /></div>
-                                                                <div className="flex flex-col gap-1">
-                                                                    <span className="tracking-tight font-black text-slate-900 text-sm">{timestamp} <span className="text-slate-300 mx-1">•</span> <span className="text-sky-600">{timeframe}</span></span>
-                                                                    <span className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Neural Milestone</span>
-                                                                </div>
+                                                        <tr key={i} className="hover:bg-white/[0.01] transition-colors group">
+                                                            <td className="px-10 py-8 flex items-center gap-6">
+                                                                <div className="p-3 bg-purple-500/10 rounded-xl text-purple-400 border border-purple-500/20 group-hover:bg-purple-500/20 transition-all"><FileJson className="w-5 h-5" /></div>
+                                                                <span className="tracking-tight text-slate-100 text-xs font-mono">{f.name}</span>
                                                             </td>
-                                                            <td className="px-6 py-6">
-                                                                <span className="px-3 py-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[11px] font-black rounded-lg shadow-sm">
+                                                            <td className="px-8 py-8 text-center">
+                                                                <span className="px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.1)]">
                                                                     {mape}% MAPE
                                                                 </span>
                                                             </td>
-                                                            <td className="px-6 py-6 text-xs text-slate-500 font-mono">{(f.metadata.size / 1024 / 1024).toFixed(2)} MB</td>
-                                                            <td className="px-8 py-6 text-right"><button onClick={() => deleteFile(f.name)} className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-100 rounded-xl transition-all"><Trash2 className="w-5 h-5" /></button></td>
+                                                            <td className="px-10 py-8 text-right"><button onClick={() => deleteFile(f.name)} className="p-3 text-slate-700 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all border border-transparent hover:border-rose-500/20"><Trash2 className="w-5 h-5" /></button></td>
                                                         </tr>
                                                     );
                                                 })}
@@ -200,31 +192,28 @@ export default function BotManagement() {
                             </section>
                         </div>
 
-                        <div className="space-y-8">
-                            <GlassCard className="p-10 border-white shadow-2xl bg-slate-900 text-white" delay={0.3}>
-                                <div className="flex items-center gap-3 mb-8 opacity-60"><RefreshCcw className="w-6 h-6" /><h4 className="font-black uppercase text-xs tracking-widest">Connectivity Status</h4></div>
-                                <div className="space-y-8">
-                                    <div className="flex items-center justify-between"><span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Supabase API</span><span className="flex items-center gap-3 text-emerald-400 font-black text-xs uppercase tracking-widest"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />Operational</span></div>
-                                    <div className="flex items-center justify-between border-t border-white/10 pt-8"><span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Bucket Health</span><span className="text-sky-400 font-black text-xs uppercase tracking-widest">100% Sync</span></div>
+                        <div className="space-y-10">
+                            <GlassCard className="p-12 border-white/5 shadow-2xl bg-white/[0.01] relative group" delay={0.3}>
+                                <DebugTooltip endpoint="Supabase Auth & Storage API" fields={['connection_status', 'ping_latency']} isNull={false} />
+                                <div className="flex items-center gap-4 mb-10 opacity-40"><RefreshCcw className="w-7 h-7 text-sky-400" /><h4 className="font-black uppercase text-xs tracking-[0.3em] text-slate-400">Telemetry Status</h4></div>
+                                <div className="space-y-10">
+                                    <div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Supabase Engine</span><span className="flex items-center gap-3 text-emerald-400 font-black text-[11px] uppercase tracking-widest"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_12px_#10b981]" />Synchronized</span></div>
+                                    <div className="flex items-center justify-between border-t border-white/5 pt-10"><span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Bucket Integrity</span><span className="text-sky-400 font-black text-[11px] uppercase tracking-widest italic">100% Verified</span></div>
                                 </div>
-                                <button onClick={fetchFiles} className="mt-12 w-full py-5 rounded-[24px] bg-white/10 hover:bg-white/20 border border-white/10 text-white font-black uppercase text-[11px] tracking-[0.2em] transition-all flex justify-center items-center gap-3"><RefreshCcw className="w-4 h-4" /> Refresh Index</button>
+                                <button onClick={fetchFiles} className="mt-16 w-full py-6 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black uppercase text-[11px] tracking-[0.4em] transition-all shadow-2xl">Refresh Neural Index</button>
                             </GlassCard>
-                            <div className="p-10 rounded-[40px] bg-sky-500/5 border border-sky-100 shadow-xl flex items-start gap-6">
-                                <div className="p-4 bg-white rounded-2xl shadow-sm text-sky-500 shrink-0"><Globe className="w-7 h-7" /></div>
+                            
+                            <div className="p-12 rounded-[48px] bg-sky-500/5 border border-white/5 shadow-2xl flex flex-col items-center text-center gap-8 group hover:bg-sky-500/10 transition-all duration-700">
+                                <div className="p-5 bg-sky-500/10 rounded-[32px] text-sky-400 shadow-[0_0_30px_rgba(56,189,248,0.1)] border border-sky-500/20 group-hover:scale-110 transition-transform duration-700"><Globe className="w-10 h-10" /></div>
                                 <div>
-                                    <h4 className="font-black text-slate-800 uppercase text-xs mb-3 tracking-widest">Edge Propagation</h4>
-                                    <p className="text-xs text-slate-500 leading-relaxed font-medium">Model brains are distributed via Supabase CDN across 12 global regions for near-zero latency startup during deployment scaling.</p>
+                                    <h4 className="font-black text-white uppercase text-xs mb-4 tracking-[0.4em]">Edge Sync</h4>
+                                    <p className="text-[11px] text-slate-500 leading-relaxed font-medium uppercase tracking-[0.1em] px-4">Neural weights propagated across 12 global regions for near-zero latency tactical deployment.</p>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </main>
-            <style jsx global>{`
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        @font-face { font-family: 'Geist'; src: url('https://cdn.jsdelivr.net/font/geist/Geist-Black.woff2'); }
-      `}</style>
         </div>
     );
 }

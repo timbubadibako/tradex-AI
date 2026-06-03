@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zenith AI: Brain Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #020617; --glass-bg: rgba(255, 255, 255, 0.02); --glass-border: rgba(255, 255, 255, 0.08); }
+        body { background-color: var(--bg); color: #f8fafc; font-family: 'Inter', sans-serif; overflow: hidden; }
+        h1, h2, h3, h4 { font-family: 'Outfit', sans-serif; }
+        .glass { background: var(--glass-bg); backdrop-filter: blur(30px); border: 1px solid var(--glass-border); border-radius: 16px; }
+        .neon-blob { position: absolute; width: 400px; height: 400px; border-radius: 50%; filter: blur(100px); opacity: 0.1; z-index: -1; animation: drift 20s infinite alternate; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="flex h-screen relative">
+    
+    <div class="neon-blob" style="background: #8b5cf6; top: 30%; left: 40%;"></div>
+
+    <!-- Sidebar (Shared) -->
+    <aside class="w-72 h-full flex flex-col p-8 border-r border-white/5 bg-[#010413]">
+        <div class="flex items-center gap-3 mb-16">
+            <div class="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <h1 class="text-xl font-bold tracking-tighter uppercase">Zenith <span class="text-sky-400">AI</span></h1>
+        </div>
+        <nav class="space-y-4 flex-1">
+            <a href="dashboard-preview.html" class="text-slate-500 font-bold px-4">Dashboard</a>
+            <a href="#" class="text-slate-500 font-bold px-4">Market Data</a>
+            <a href="portfolio-preview.html" class="text-slate-500 font-bold px-4">Portfolio</a>
+            <a href="#" class="bg-white/5 text-white border border-white/5 px-6 py-4 rounded-xl font-bold block shadow-xl">Brain Management</a>
+        </nav>
+    </aside>
+
+    <main class="flex-1 overflow-y-auto no-scrollbar p-12">
+        <div class="max-w-[1600px] mx-auto space-y-16">
+            
+            <header>
+                <h2 class="text-4xl font-black tracking-tighter uppercase mb-2">Brain <span class="text-sky-400">Management</span></h2>
+                <p class="text-slate-500 text-lg">Evolutionary knowledge control and neural weight archives.</p>
+            </header>
+
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-12">
+                
+                <!-- Storage Quota -->
+                <div class="lg:col-span-1 space-y-8">
+                    <div class="glass p-8 border-white/10">
+                        <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-4">Cloud Knowledge Quota</span>
+                        <div class="flex justify-between items-end mb-4">
+                            <h3 class="text-2xl font-black">450 <span class="text-xs opacity-40 uppercase">MB</span></h3>
+                            <span class="text-[10px] font-bold text-slate-500 uppercase">/ 1 GB</span>
+                        </div>
+                        <div class="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                            <div class="h-full bg-sky-500 w-[45%]"></div>
+                        </div>
+                    </div>
+                    <div class="p-8 rounded-[30px] border border-white/5 bg-white/[0.01]">
+                        <h4 class="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Neural Garbage Collector</h4>
+                        <p class="text-[11px] text-slate-500 leading-relaxed">Zenith automatically maintains the top 5 smartest models per timeframe. Legacy brains are purged to optimize edge propagation latency.</p>
+                    </div>
+                </div>
+
+                <!-- Model List -->
+                <div class="lg:col-span-3 space-y-8">
+                    <div class="glass p-1.5 flex gap-1 w-fit mb-8">
+                        <button class="px-8 py-3 rounded-lg bg-white/10 text-white font-bold text-xs">BTC Node</button>
+                        <button class="px-8 py-3 rounded-lg text-slate-500 font-bold text-xs hover:text-slate-300 transition-all">ETH Node</button>
+                    </div>
+
+                    <div class="glass border-white/10 overflow-hidden">
+                        <table class="w-full text-left">
+                            <thead class="bg-white/[0.02]">
+                                <tr class="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                    <th class="px-8 py-5">File Identifier</th>
+                                    <th class="px-6 py-5">Accuracy</th>
+                                    <th class="px-6 py-5">Size</th>
+                                    <th class="px-8 py-5 text-right">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-sm font-bold text-slate-400 border-t border-white/5">
+                                <tr class="border-b border-white/5 hover:bg-white/[0.01]">
+                                    <td class="px-8 py-6 flex items-center gap-4 text-white">
+                                        <div class="p-2 bg-sky-500/10 rounded-lg text-sky-500"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 21h6l-.75-4M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg></div>
+                                        latest/model_1h.keras
+                                    </td>
+                                    <td class="px-6 py-6"><span class="text-emerald-400">0.85% MAPE</span></td>
+                                    <td class="px-6 py-6 font-mono text-xs opacity-40">5.42 MB</td>
+                                    <td class="px-8 py-6 text-right"><span class="px-2 py-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 text-[8px] font-black uppercase">Live Active</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </main>
+</body>
+</html>

@@ -8,26 +8,31 @@ interface GlassCardProps {
   children: ReactNode;
   className?: string;
   delay?: number;
+  isActive?: boolean;
 }
 
-export default function GlassCard({ children, className, delay = 0 }: GlassCardProps) {
+export default function GlassCard({ children, className, delay = 0, isActive = false }: GlassCardProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ 
-        duration: 0.5, 
+        duration: 0.6, 
         delay,
-        ease: [0.23, 1, 0.32, 1] 
+        ease: [0.2, 0, 0, 1] 
       }}
       className={cn(
-        "relative overflow-hidden rounded-3xl border border-white/40 bg-white/60 p-6 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] transition-all duration-300 hover:shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] hover:border-white/60",
+        "relative overflow-hidden rounded-2xl border border-white/5 bg-white/[0.02] backdrop-blur-3xl transition-all duration-500",
+        isActive && "active-trade-glow",
         className
       )}
     >
       <div className="relative z-10">{children}</div>
-      {/* Subtle light reflection effect */}
-      <div className="absolute -inset-x-20 -top-20 h-40 w-40 bg-sky-200/20 blur-[80px] pointer-events-none" />
+      {/* Dynamic Glow Reflector */}
+      <div className={cn(
+        "absolute -inset-x-40 -top-40 h-80 w-80 rounded-full blur-[100px] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-1000",
+        isActive ? "bg-sky-500/10" : "bg-white/[0.03]"
+      )} />
     </motion.div>
   );
 }

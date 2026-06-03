@@ -1,20 +1,80 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc; /* sky-50ish */
-  --foreground: #0f172a; /* slate-900 */
+  --bg: #020617;
+  --glass-bg: rgba(255, 255, 255, 0.02);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --accent: #38bdf8;
+  --emerald: #10b981;
+  --rose: #f43f5e;
+  --amber: #f59e0b;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-foreground: #f8fafc;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  color: #f8fafc;
+  background: var(--bg);
+  font-family: 'Inter', sans-serif;
+  min-width: 1440px; /* Force Desktop Only */
+  overflow-x: hidden;
+  position: relative;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* STABLE PULSING BACKGROUND */
+body::before, body::after {
+  content: '';
+  position: fixed;
+  width: 800px;
+  height: 800px;
+  border-radius: 50%;
+  filter: blur(140px);
+  z-index: -1;
+  pointer-events: none;
+  animation: ambient-pulse 10s infinite alternate ease-in-out;
+}
+
+body::before {
+  background: var(--accent);
+  top: -200px;
+  left: -100px;
+  opacity: 0.05;
+}
+
+body::after {
+  background: #8b5cf6;
+  bottom: -200px;
+  right: -100px;
+  opacity: 0.05;
+  animation-delay: -5s;
+}
+
+@keyframes ambient-pulse {
+  0% { transform: scale(1); opacity: 0.04; }
+  100% { transform: scale(1.15); opacity: 0.12; }
+}
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid var(--glass-border);
+}
+
+.active-trade-glow {
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  background: rgba(56, 189, 248, 0.03) !important;
 }
 
 /* Custom scrollbar for better glassmorphism look */
@@ -28,10 +88,14 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
