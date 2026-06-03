@@ -70,11 +70,20 @@ asset_states = {coin: {
     "last_input_1h": None, "last_input_5m": None
 } for coin in AVAILABLE_COINS}
 
-INITIAL_BALANCE_IDR = 10000000  
-INITIAL_BALANCE_BTC = 1.0       
+INITIAL_BALANCE_IDR = 500000  
+INITIAL_BALANCE_BTC = 0.5       
 TRADING_FEE = 0.001             
-LOT_SIZE_BTC = 0.005 
+LOT_SIZE_BTC = 0.0005 # Reduced lot size for smaller capital
 
+# The Vault: Accumulated 30% withdrawals
+vault_balance_idr = 0.0
+daily_target_idr = 150000.0 # Target 150rb per day
+manual_override_config = {
+    "active": False,
+    "conf_threshold": 0.55, # Lowered for 20-30x trades per day
+    "signal_threshold": 0.3, # Lowered for faster entry
+    "use_macro": True
+}
 # Global Safety Settings
 safety_settings = {
     "sl_atr_mult": 1.5,
@@ -82,54 +91,152 @@ safety_settings = {
     "emergency_stop": False
 }
 
+# Global State Persistence Helpers
+def pull_bot_state():
+    """Initial state fetch from Supabase."""
+    global vault_balance_idr, daily_target_idr, INITIAL_BALANCE_IDR
+    if not manager.supabase: return
+    try:
+        res = manager.supabase.table("bot_state").select("*").execute()
+        for row in res.data:
+            key, data = row['key'], row['data']
+            if key == 'global_config':
+                daily_target_idr = data.get('daily_target', daily_target_idr)
+                vault_balance_idr = data.get('vault', vault_balance_idr)
+            elif key.endswith('_sandbox'):
+                coin = key.split('_')[0]
+                if coin in AVAILABLE_COINS:
+                    sb = sandboxes[coin]
+                    sb.balance_idr = data.get('balance_idr', sb.balance_idr)
+                    sb.btc_holdings = data.get('holdings', sb.btc_holdings)
+                    sb.baseline = data.get('baseline', sb.baseline)
+        print("[CLOUD PERSISTENCE] Global state successfully restored from Supabase.")
+    except Exception as e: print(f"[CLOUD PULL ERROR] Failed to restore state: {e}")
+
+def push_bot_state(coin_or_global: str):
+    """Saves current balance/config to Supabase."""
+    if not manager.supabase: return
+    try:
+        if coin_or_global == 'global':
+            payload = {"daily_target": daily_target_idr, "vault": vault_balance_idr}
+            manager.supabase.table("bot_state").upsert({"key": "global_config", "data": payload, "updated_at": datetime.now().isoformat()}).execute()
+        else:
+            sb = sandboxes[coin_or_global.upper()]
+            payload = {"balance_idr": sb.balance_idr, "holdings": sb.btc_holdings, "baseline": sb.baseline}
+            manager.supabase.table("bot_state").upsert({"key": f"{coin_or_global.upper()}_sandbox", "data": payload, "updated_at": datetime.now().isoformat()}).execute()
+    except Exception as e: print(f"[CLOUD PUSH ERROR] Failed to save state for {coin_or_global}: {e}")
+
 # ==========================================
 # 2. CLASS SANDBOX ENGINE
 # ==========================================
 class TradingSandbox:
-    def __init__(self, idr, btc):
-        self.balance_idr = idr; self.btc_holdings = btc
-        self.initial_equity = idr + (btc * 1300000000) 
+    def __init__(self, idr, btc, baseline=0.5):
+        self.initial_idr = idr
+        self.balance_idr = idr # This is REALIZED CASH
+        self.btc_holdings = btc # The baseline/inventory
+        self.baseline = baseline
+        self.realized_pnl = 0.0
         self.wins = 0; self.losses = 0; self.history = []
         self.active_position = None; self.entry_price = 0
+        self.daily_pnl_start = 0.0 # Initial baseline realized PnL
+        
+        # Fase 2: Behavioral Guard (MUST BE INITIALIZED)
+        self.consecutive_losses = 0
+        self.dynamic_conf_adder = 0.0
+        self.cooldown_until = 0
 
-    def get_equity(self, current_price): return self.balance_idr + (self.btc_holdings * current_price)
+    def get_floating_pnl(self, current_price):
+        if self.active_position == 'LONG':
+            return (current_price - self.entry_price) * LOT_SIZE_BTC
+        elif self.active_position == 'SHORT':
+            return (self.entry_price - current_price) * LOT_SIZE_BTC
+        return 0.0
+
+    def get_net_pnl_idr(self, current_price):
+        # Total Realized + Floating (Relative to Zero)
+        return self.realized_pnl + self.get_floating_pnl(current_price)
+
+    def get_equity(self, current_price): 
+        # Total value including baseline assets
+        return self.balance_idr + (self.btc_holdings * current_price)
+
     def open_long(self, coin, price):
         if self.active_position is None:
+            # Check if we have enough realized cash to open
             cost = LOT_SIZE_BTC * price
             if self.balance_idr >= cost:
-                self.balance_idr -= cost * (1 + TRADING_FEE); self.btc_holdings += LOT_SIZE_BTC
+                self.trade_id = f"T-{int(time.time())}"
                 self.active_position = 'LONG'; self.entry_price = price
-                trade = {'coin': coin, 'type': 'OPEN_LONG', 'price': price, 'time': datetime.now().isoformat(), 'pnl': 0}
+                # We don't deduct from balance_idr yet? 
+                # Actually, in Spot we MUST deduct. Let's treat it as realized cash.
+                self.balance_idr -= cost * (1 + TRADING_FEE)
+                self.btc_holdings += LOT_SIZE_BTC
+                trade = {'id': self.trade_id, 'coin': coin, 'type': 'OPEN_LONG', 'price': price, 'time': datetime.now().isoformat(), 'pnl': 0, 'tf': CURRENT_TF}
                 self.history.insert(0, trade); asset_states[coin]['trade_history'].insert(0, trade)
                 return True
         return False
+
     def close_long(self, coin, price):
         if self.active_position == 'LONG':
-            self.balance_idr += (LOT_SIZE_BTC * price) * (1 - TRADING_FEE); self.btc_holdings -= LOT_SIZE_BTC
-            pnl = (price - self.entry_price) * LOT_SIZE_BTC
-            if pnl > 0: self.wins += 1
-            else: self.losses += 1
+            revenue = (LOT_SIZE_BTC * price) * (1 - TRADING_FEE)
+            cost = LOT_SIZE_BTC * self.entry_price
+            pnl = revenue - (cost * (1 + TRADING_FEE)) # Net PnL including both fees
+            
+            self.balance_idr += revenue
+            self.btc_holdings -= LOT_SIZE_BTC
+            self.realized_pnl += pnl
+            
+            if pnl > 0: 
+                self.wins += 1; self.consecutive_losses = 0
+                self.dynamic_conf_adder = max(0.0, self.dynamic_conf_adder - 0.05)
+            else: 
+                self.losses += 1; self.consecutive_losses += 1
+                self.dynamic_conf_adder = min(0.3, self.dynamic_conf_adder + 0.07)
+                if self.consecutive_losses >= 3: self.cooldown_until = time.time() + 1800
+                
             self.active_position = None
-            trade = {'coin': coin, 'type': 'CLOSE_LONG', 'price': price, 'time': datetime.now().isoformat(), 'pnl': pnl}
+            trade = {'id': self.trade_id, 'coin': coin, 'type': 'CLOSE_LONG', 'price': price, 'time': datetime.now().isoformat(), 'pnl': pnl, 'tf': CURRENT_TF}
             self.history.insert(0, trade); asset_states[coin]['trade_history'].insert(0, trade)
             return True
         return False
+
     def open_short(self, coin, price):
-        if self.active_position is None and self.btc_holdings >= LOT_SIZE_BTC:
-            self.balance_idr += (LOT_SIZE_BTC * price) * (1 - TRADING_FEE); self.btc_holdings -= LOT_SIZE_BTC
+        if self.active_position is None:
+            # SHORT in Spot = Selling the baseline/borrowed asset
+            self.trade_id = f"T-{int(time.time())}"
+            revenue = (LOT_SIZE_BTC * price) * (1 - TRADING_FEE)
+            # IMPORTANT: We don't add revenue to realized balance yet 
+            # to avoid the "fake profit" jump. We store it as a pending revenue.
             self.active_position = 'SHORT'; self.entry_price = price
-            trade = {'coin': coin, 'type': 'OPEN_SHORT', 'price': price, 'time': datetime.now().isoformat(), 'pnl': 0}
+            self.btc_holdings -= LOT_SIZE_BTC
+            
+            trade = {'id': self.trade_id, 'coin': coin, 'type': 'OPEN_SHORT', 'price': price, 'time': datetime.now().isoformat(), 'pnl': 0, 'tf': CURRENT_TF}
             self.history.insert(0, trade); asset_states[coin]['trade_history'].insert(0, trade)
             return True
         return False
+
     def close_short(self, coin, price):
         if self.active_position == 'SHORT':
-            self.balance_idr -= (LOT_SIZE_BTC * price) * (1 + TRADING_FEE); self.btc_holdings += LOT_SIZE_BTC
-            pnl = (self.entry_price - price) * LOT_SIZE_BTC
-            if pnl > 0: self.wins += 1
-            else: self.losses += 1
+            # Closing SHORT = Buying back the asset
+            cost = (LOT_SIZE_BTC * price) * (1 + TRADING_FEE)
+            revenue = (LOT_SIZE_BTC * self.entry_price) * (1 - TRADING_FEE)
+            pnl = revenue - cost
+            
+            # Now we realize the PnL into the cash balance
+            self.balance_idr += pnl
+            self.btc_holdings += LOT_SIZE_BTC
+            self.realized_pnl += pnl
+            
+            if pnl > 0: 
+                self.wins += 1; self.consecutive_losses = 0
+                self.dynamic_conf_adder = max(0.0, self.dynamic_conf_adder - 0.05)
+            else: 
+                self.losses += 1; self.consecutive_losses += 1
+                self.dynamic_conf_adder = min(0.3, self.dynamic_conf_adder + 0.07)
+                if self.consecutive_losses >= 3: self.cooldown_until = time.time() + 1800
+                
             self.active_position = None
-            trade = {'coin': coin, 'type': 'CLOSE_SHORT', 'price': price, 'time': datetime.now().isoformat(), 'pnl': pnl}
+            trade = {'id': self.trade_id, 'coin': coin, 'type': 'CLOSE_SHORT', 'price': price, 'time': datetime.now().isoformat(), 'pnl': pnl, 'tf': CURRENT_TF}
             self.history.insert(0, trade); asset_states[coin]['trade_history'].insert(0, trade)
             return True
         return False
@@ -248,15 +355,75 @@ def get_status():
     return {"coin": CURRENT_COIN, "tf": CURRENT_TF, "balance_idr": s['bot_status'].get('balance_idr', 0), "btc_holdings": s['bot_status'].get('btc_holdings', 0), "equity": s['bot_status'].get('equity', 0), "profit_pct": s['bot_status'].get('profit_pct', 0), "winrate": s['bot_status'].get('winrate', 0), "error_rate": s['bot_status'].get('error_rate_1h' if CURRENT_TF == '1h' else 'error_rate_5m', 0), "obi": s['quant']['obi'], "atr": s['quant']['atr'], "prediction": {"price": s['prediction_1h' if CURRENT_TF == '1h' else 'prediction_5m']['price'], "confidence": s['consensus']['confidence'], "signal": s['consensus']['signal'], "macro": s['consensus']['macro']}}
 
 def get_all_status():
+    global vault_balance_idr, daily_target_idr
     data = {}
+    total_relative_pnl = 0
     for coin in AVAILABLE_COINS:
         s = asset_states[coin]; curr_p = s['quant'].get('current_price', 0)
         if curr_p == 0: curr_p = float(s['market_data_1h'][-1]['close']) if s['market_data_1h'] else 0
+        
+        sb = sandboxes[coin]
+        # Calculate PnL relative to the start of the day
+        rel_pnl = sb.get_net_pnl_idr(curr_p) - sb.daily_pnl_start
+        total_relative_pnl += rel_pnl
+        
         pred_p_1h = s['prediction_1h']['price']; gap_idr_1h = pred_p_1h - curr_p; gap_pct_1h = (gap_idr_1h / curr_p * 100) if curr_p > 0 else 0
         pred_p_5m = s['prediction_5m']['price']; gap_idr_5m = pred_p_5m - curr_p; gap_pct_5m = (gap_idr_5m / curr_p * 100) if curr_p > 0 else 0
-        data[coin] = {"mape_1h": s['bot_status'].get('error_rate_1h', 0), "mape_5m": s['bot_status'].get('error_rate_5m', 0), "gap_idr_1h": gap_idr_1h, "gap_pct_1h": gap_pct_1h, "gap_idr_5m": gap_idr_5m, "gap_pct_5m": gap_pct_5m, "profit_pct": s['bot_status'].get('profit_pct', 0), "equity": s['bot_status'].get('equity', 0), "obi": s['quant']['obi']}
-    return data
+        data[coin] = {
+            "mape_1h": s['bot_status'].get('error_rate_1h', 0), 
+            "mape_5m": s['bot_status'].get('error_rate_5m', 0), 
+            "gap_idr_1h": gap_idr_1h, 
+            "gap_pct_1h": gap_pct_1h, 
+            "gap_idr_5m": gap_idr_5m, 
+            "gap_pct_5m": gap_pct_5m, 
+            "net_pnl": sb.get_net_pnl_idr(curr_p),
+            "btc_holdings": sb.btc_holdings,
+            "obi": s['quant']['obi']
+        }
+    return {
+        "assets": data, 
+        "vault": vault_balance_idr, 
+        "daily_target": daily_target_idr,
+        "total_net_pnl": total_relative_pnl,
+        "manual_config": manual_override_config
+    }
 
+async def daily_harvest_task():
+    global vault_balance_idr
+    while not stop_event.is_set():
+        now = datetime.now()
+        # Check if it's midnight
+        if now.hour == 0 and now.minute == 0:
+            for coin in AVAILABLE_COINS:
+                sb = sandboxes[coin]
+                curr_p = asset_states[coin]['quant'].get('current_price', 0)
+                current_pnl = sb.get_net_pnl_idr(curr_p) - sb.daily_pnl_start
+                
+                if current_pnl > 0:
+                    harvest_amount = current_pnl * 0.3
+                    reinvest_amount = current_pnl * 0.7
+                    
+                    vault_balance_idr += harvest_amount
+                    # Reinvest 70% is already in balance_idr theoretically, 
+                    # but we clean up 'receh' by rounding down.
+                    sb.balance_idr = float(int(sb.balance_idr)) # Round to nearest IDR
+                    
+                    global_event_log.append({
+                        "time": datetime.now().isoformat(),
+                        "message": f"[HARVEST] Daily profit for {coin}: Rp {current_pnl:,.0f}. 30% (Rp {harvest_amount:,.0f}) moved to Vault. 70% reinvested.",
+                        "type": "SYSTEM",
+                        "coin": coin
+                    })
+                
+                # Sync each coin state and global config
+                push_bot_state(coin)
+                push_bot_state('global')
+                
+                # Reset daily baseline for next day with the new compounded capital
+                sb.daily_pnl_start = sb.get_net_pnl_idr(curr_p)
+            
+            await asyncio.sleep(61) # Prevent double trigger
+        await asyncio.sleep(30)
 @app.get("/api/status")
 def api_status(): return get_status()
 @app.get("/api/all_status")
@@ -271,11 +438,29 @@ def get_trades():
     for c in AVAILABLE_COINS: all_trades.extend(asset_states[c]['trade_history'])
     return sorted(all_trades, key=lambda x: x['time'], reverse=True)
 
+@app.post("/api/update_manual_config")
+async def update_manual_config(active: bool, conf: float, sig: float, macro: bool):
+    global manual_override_config
+    manual_override_config = {
+        "active": active,
+        "conf_threshold": conf,
+        "signal_threshold": sig,
+        "use_macro": macro
+    }
+    return {"status": "success", "config": manual_override_config}
+
+@app.post("/api/update_daily_target")
+async def update_daily_target(target: float):
+    global daily_target_idr
+    daily_target_idr = target
+    return {"status": "success", "target": daily_target_idr}
+
 @app.get("/api/chart")
-def get_chart():
+def api_chart():
     s = asset_states[CURRENT_COIN]; ohlcv = s['market_data_1h'] if CURRENT_TF == '1h' else s['market_data_5m']; hist = s['prediction_history_1h'] if CURRENT_TF == '1h' else s['prediction_history_5m']
-    pred = {"price": s['prediction_1h' if CURRENT_TF == '1h' else 'prediction_5m']['price'], "confidence": s['consensus']['confidence'], "signal": s['consensus']['signal'], "macro": s['consensus']['macro']}
+    pred = {"price": s['prediction_1h' if CURRENT_TF == '1h' else 'prediction_5m']['price'], "confidence": s['consensus']['confidence'], "signal": s['consensus']['signal'], "macro": s['consensus']['macro'], "micro": s['consensus'].get('micro', 'WAIT')}
     return {"ohlcv": ohlcv, "prediction": pred, "prediction_history": hist}
+
 
 @app.post("/api/update_safety")
 def update_safety(sl: float, tp: float):
@@ -313,24 +498,61 @@ async def fast_ticker_loop():
                     if coin == AVAILABLE_COINS[-1]: manual_signal = None
                 elif not safety_settings['emergency_stop']:
                     conf_val = float(res.get('confidence', 0)); ov = float(s['quant']['obi']); sig = res.get('signal', 'WAIT')
-                    if conf_val > 0.6: 
-                        if sig == 'BUY' and ov > 0.05:
+                    macro_tr = res.get('macro', 'NEUTRAL'); micro_sig = res.get('micro', 'WAIT')
+                    
+                    # Entry threshold based on manual override + dynamic penalty
+                    base_threshold = manual_override_config['conf_threshold'] if manual_override_config['active'] else 0.55
+                    entry_threshold = base_threshold + sb.dynamic_conf_adder
+                    obi_min = (manual_override_config['signal_threshold'] / 10.0) if manual_override_config['active'] else 0.03
+                    
+                    # Neural Divergence Guard
+                    is_conflict = (macro_tr == 'BULLISH' and micro_sig == 'SELL') or (macro_tr == 'BEARISH' and micro_sig == 'BUY')
+                    is_cooldown = time.time() < sb.cooldown_until
+                    
+                    if conf_val > entry_threshold and not is_conflict and not is_cooldown: 
+                        if sig == 'BUY' and ov > obi_min:
                             if sb.active_position == 'SHORT': sb.close_short(coin, curr_p)
                             if sb.open_long(coin, curr_p):
                                 global_event_log.append({"time": datetime.now().isoformat(), "message": f"[EXECUTION] BUY signal processed for {coin} at IDR {curr_p:,.0f} (Confidence: {conf_val:.2f}, OBI: {ov:+.2f})", "type": "SYSTEM", "coin": coin})
-                        elif sig == 'SELL' and ov < -0.05:
+                                print(f"\n[TRADE] OPEN LONG {coin} at {curr_p:,.0f} | Confidence: {conf_val:.2f}")
+                        elif sig == 'SELL' and ov < -obi_min:
                             if sb.active_position == 'LONG': sb.close_long(coin, curr_p)
                             if sb.open_short(coin, curr_p):
                                 global_event_log.append({"time": datetime.now().isoformat(), "message": f"[EXECUTION] SELL signal processed for {coin} at IDR {curr_p:,.0f} (Confidence: {conf_val:.2f}, OBI: {ov:+.2f})", "type": "SYSTEM", "coin": coin})
-                sb.btc_holdings = round(sb.btc_holdings, 8); sb.balance_idr = round(sb.balance_idr, 2); eq = sb.get_equity(curr_p); wr = (sb.wins / (sb.wins + sb.losses) * 100) if (sb.wins + sb.losses) > 0 else 0; s['bot_status'].update({"balance_idr": float(sb.balance_idr), "btc_holdings": float(sb.btc_holdings), "equity": float(eq), "profit_pct": float(((eq - sb.initial_equity) / sb.initial_equity) * 100), "winrate": float(wr)})
+                                print(f"\n[TRADE] OPEN SHORT {coin} at {curr_p:,.0f} | Confidence: {conf_val:.2f}")
+                    elif is_cooldown:
+                        pass # Status is on UI
+                    elif is_conflict:
+                        pass # Divergence is visible on Logic Pipeline UI
+                
+                # Update status with Net PnL and Equity
+                sb.btc_holdings = round(sb.btc_holdings, 8); sb.balance_idr = round(sb.balance_idr, 2)
+                net_pnl = sb.get_net_pnl_idr(curr_p)
+                eq = sb.get_equity(curr_p)
+                wr = (sb.wins / (sb.wins + sb.losses) * 100) if (sb.wins + sb.losses) > 0 else 0
+                s['bot_status'].update({
+                    "balance_idr": float(sb.balance_idr), 
+                    "btc_holdings": float(sb.btc_holdings), 
+                    "equity": float(eq),
+                    "net_pnl": float(net_pnl),
+                    "winrate": float(wr)
+                })
+                # SYNC TO CLOUD IF POSITION CHANGED
+                if i == 0 or i == len(AVAILABLE_COINS) - 1: # Throttle sync
+                    push_bot_state(coin)
+
             await ws_manager.broadcast({"type": "TICK", "status": get_status(), "all_status": get_all_status(), "events": get_events()[-20:], "trades": get_trades()})
-            print(f"💓 [WS PULSE] {CURRENT_COIN}: {curr_p:,.0f} | OBI: {s['quant']['obi']:+.2f} | Clients: {len(ws_manager.active_connections)}", end="\r")
+            # SAKTI FIX: Clear line remnants before printing next pulse
+            sys.stdout.write("\033[K") 
+            print(f"[WS PULSE] {CURRENT_COIN}: {curr_p:,.0f} | OBI: {s['quant']['obi']:+.2f} | Clients: {len(ws_manager.active_connections)}", end="\r")
             await asyncio.sleep(1)
         except Exception as e:
             if not stop_event.is_set(): print(f"[WS ERROR] Real-time loop exception: {e}"); await asyncio.sleep(2)
 
 @app.on_event("startup")
-async def startup_event(): asyncio.create_task(fast_ticker_loop())
+async def startup_event(): 
+    asyncio.create_task(fast_ticker_loop())
+    asyncio.create_task(daily_harvest_task())
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -342,7 +564,14 @@ async def shutdown_event():
 def bot_loop():
     global global_event_log
     print("[MODEL MANAGER] Commencing core intelligence sequence...")
-    for c in AVAILABLE_COINS: manager.load_pair(c)
+    for c in AVAILABLE_COINS: 
+        b1h, b5m = manager.load_pair(c)
+        asset_states[c]['bot_status']['best_error_rate_1h'] = b1h
+        asset_states[c]['bot_status']['best_error_rate_5m'] = b5m
+    
+    # RESTORE STATE FROM SUPABASE
+    pull_bot_state()
+
     try:
         for coin in AVAILABLE_COINS:
             db_hist_1h = fetch_predictions_from_db(coin, '1h'); df_init_1h = get_processed_df(f"{coin}/IDR", '1h', limit=150)
@@ -388,8 +617,11 @@ def bot_loop():
                     if 'bb_h' in req and 'bb_h' not in c.columns: c['bb_h']=c['bb_high']; c['bb_l']=c['bb_low']
                     return mm_assets[m_key]['scaler_x'].transform(c[req]).reshape(1, 60, -1)
                 s['market_data_1h'] = df1.tail(100).to_dict('records'); s['market_data_5m'] = df5.tail(100).to_dict('records')
-                res = manager.get_consensus_signal(coin, prep_seq(df1, '1h'), prep_seq(df5, '5m'), curr_p)
-                s['consensus'] = {"signal": res['signal'], "macro": res['trend_macro'], "confidence": res['confidence']}; s['quant']['atr'] = float(df5.iloc[-1]['atr'])
+                # Use manual override config in thinker loop
+                res = manager.get_consensus_signal(coin, prep_seq(df1, '1h'), prep_seq(df5, '5m'), curr_p, config=manual_override_config if manual_override_config['active'] else None)
+
+                s['consensus'] = {"signal": res['signal'], "macro": res['trend_macro'], "micro": res['signal_micro'], "confidence": res['confidence']}; s['quant']['atr'] = float(df5.iloc[-1]['atr'])
+
                 if ts_1h != s['last_ts_1h']:
                     if s['last_input_1h'] is not None:
                         manager.online_learn(coin, '1h', s['last_input_1h'], curr_p); err = abs(s['prediction_history_1h'][-1]['price'] - curr_p) / curr_p; curr_mape = (err * 100 * 0.1) + (s['bot_status'].get('error_rate_1h', 0) * 0.9); s['bot_status']['error_rate_1h'] = curr_mape
@@ -404,7 +636,7 @@ def bot_loop():
                         tf.keras.backend.clear_session(); gc.collect()
                     new_in = prep_seq(df5, '5m'); p_p, _ = manager.predict_tf(coin, '5m', new_in, curr_p)
                     s['prediction_history_5m'].append({"timestamp": ts_5m + (300 * 1000), "price": p_p}); s['last_ts_5m'] = ts_5m; s['last_input_5m'] = new_in; s['prediction_5m'] = {"price": p_p, "confidence": _}; log_prediction_to_db(coin, '5m', curr_p, p_p, _, res['signal'], res['trend_macro'], timestamp=datetime.fromtimestamp((ts_5m + 300*1000)/1000, tz=timezone.utc).isoformat())
-            prune_old_predictions(CURRENT_COIN); print(f"[THINKER CYCLE] Active Matrix Evaluated | Status: Operational", end="\r"); refresh_event.wait(30); refresh_event.clear()
+            prune_old_predictions(CURRENT_COIN); print(f"[THINKER CYCLE] Active Matrix Evaluated | Status: Operational", end="\r"); refresh_event.wait(15); refresh_event.clear()
         except Exception as e:
             if not stop_event.is_set(): print(f"[THINKER ERROR] Core processing loop exception: {e}"); time.sleep(10)
 

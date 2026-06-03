@@ -58,7 +58,7 @@ export function useBotStatus() {
 }
 
 export function useAllAssetsStatus() {
-  const [data, setData] = useState(globalState.allStatus);
+  const [data, setData] = useState<any>(globalState.allStatus);
   
   useEffect(() => {
     initWs();
@@ -68,7 +68,24 @@ export function useAllAssetsStatus() {
     return () => { listeners.delete(cb); };
   }, []);
   
-  return { allStatus: data || {}, isError: false, isLoading: !data || Object.keys(data).length === 0 };
+  // Backward compatibility for asset iteration
+  const assets = data?.assets || (data && !data.assets ? data : {});
+  const vault = data?.vault || 0;
+  const totalNetPnl = data?.total_net_pnl || 0;
+  const dailyTarget = data?.daily_target || 100000;
+  const manualConfig = data?.manual_config || null;
+  const cashBalance = Object.values(assets)[0]?.balance_idr || 500000;
+
+  return { 
+    allStatus: assets, 
+    vault, 
+    totalNetPnl, 
+    dailyTarget,
+    manualConfig,
+    cashBalance,
+    isError: false, 
+    isLoading: !data || (typeof data === 'object' && Object.keys(assets).length === 0) 
+  };
 }
 
 export function useEventLog() {

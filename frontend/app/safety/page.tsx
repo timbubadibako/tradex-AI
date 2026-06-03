@@ -5,12 +5,15 @@ import { ShieldCheck, AlertCircle, Zap, Activity, Info, Save, Power } from "luci
 import { useState, useEffect } from "react";
 import GlassCard from "@/components/dashboard/GlassCard";
 import Sidebar from "@/components/dashboard/Sidebar";
+import ControlCenter from "@/components/dashboard/ControlCenter";
+import { useAllAssetsStatus } from "@/hooks/useDashboardData";
 import useSWR from "swr";
 import { getApiUrl } from "@/lib/constants";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 export default function SafetyPage() {
+  const { manualConfig, dailyTarget } = useAllAssetsStatus();
   const { data: safety, mutate } = useSWR(`${getApiUrl()}/api/safety`, fetcher);
   const [sl, setSl] = useState(1.5);
   const [tp, setTp] = useState(2.5);
@@ -51,48 +54,53 @@ export default function SafetyPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
              
-             {/* Risk Management Form */}
-             <GlassCard className="p-10 border-white shadow-xl" delay={0.1}>
-                <div className="flex items-center gap-3 mb-8">
-                   <Activity className="w-6 h-6 text-sky-500" />
-                   <h3 className="font-black text-slate-800 uppercase tracking-widest">Volatility Guard (ATR)</h3>
-                </div>
-                
-                <div className="space-y-8">
-                   <div className="space-y-4">
-                      <div className="flex justify-between items-end">
-                         <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Stop Loss Multiplier</label>
-                         <span className="text-xl font-black text-rose-500">{sl}x ATR</span>
-                      </div>
-                      <input 
-                        type="range" min="1" max="5" step="0.1" 
-                        value={sl} onChange={(e) => setSl(parseFloat(e.target.value))}
-                        className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                      />
-                      <p className="text-[10px] text-slate-400 italic">Batas toleransi kerugian berdasarkan rata-rata fluktuasi harga.</p>
-                   </div>
+             <div className="space-y-12">
+                {/* Manual Override Control */}
+                <ControlCenter currentConfig={manualConfig} dailyTarget={dailyTarget} />
 
-                   <div className="space-y-4">
-                      <div className="flex justify-between items-end">
-                         <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Take Profit Multiplier</label>
-                         <span className="text-xl font-black text-emerald-500">{tp}x ATR</span>
-                      </div>
-                      <input 
-                        type="range" min="1" max="10" step="0.1" 
-                        value={tp} onChange={(e) => setTp(parseFloat(e.target.value))}
-                        className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                      />
-                      <p className="text-[10px] text-slate-400 italic">Target profit otomatis yang menyesuaikan dengan volatilitas pasar.</p>
+                {/* Risk Management Form */}
+                <GlassCard className="p-10 border-white shadow-xl" delay={0.1}>
+                   <div className="flex items-center gap-3 mb-8">
+                      <Activity className="w-6 h-6 text-sky-500" />
+                      <h3 className="font-black text-slate-800 uppercase tracking-widest">Volatility Guard (ATR)</h3>
                    </div>
+                   
+                   <div className="space-y-8">
+                      <div className="space-y-4">
+                         <div className="flex justify-between items-end">
+                            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Stop Loss Multiplier</label>
+                            <span className="text-xl font-black text-rose-500">{sl}x ATR</span>
+                         </div>
+                         <input 
+                           type="range" min="1" max="5" step="0.1" 
+                           value={sl} onChange={(e) => setSl(parseFloat(e.target.value))}
+                           className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                         />
+                         <p className="text-[10px] text-slate-400 italic">Batas toleransi kerugian berdasarkan rata-rata fluktuasi harga.</p>
+                      </div>
 
-                   <button 
-                     onClick={handleUpdate}
-                     className="w-full py-5 rounded-[24px] bg-slate-900 text-white font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-sky-600 transition-all flex items-center justify-center gap-3"
-                   >
-                      <Save className="w-5 h-5" /> Update Guardrails
-                   </button>
-                </div>
-             </GlassCard>
+                      <div className="space-y-4">
+                         <div className="flex justify-between items-end">
+                            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Take Profit Multiplier</label>
+                            <span className="text-xl font-black text-emerald-500">{tp}x ATR</span>
+                         </div>
+                         <input 
+                           type="range" min="1" max="10" step="0.1" 
+                           value={tp} onChange={(e) => setTp(parseFloat(e.target.value))}
+                           className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                         />
+                         <p className="text-[10px] text-slate-400 italic">Target profit otomatis yang menyesuaikan dengan volatilitas pasar.</p>
+                      </div>
+
+                      <button 
+                        onClick={handleUpdate}
+                        className="w-full py-5 rounded-[24px] bg-slate-900 text-white font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-sky-600 transition-all flex items-center justify-center gap-3"
+                      >
+                         <Save className="w-5 h-5" /> Update Guardrails
+                      </button>
+                   </div>
+                </GlassCard>
+             </div>
 
              {/* Emergency Protocol */}
              <div className="space-y-8">

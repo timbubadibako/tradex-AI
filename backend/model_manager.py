@@ -63,10 +63,17 @@ class ModelManager:
             # File likely doesn't exist in cloud
             return None
 
-    def load_pair(self, coin: str):
-        """Load models STRICTLY from Supabase. No local fallback allowed."""
+    def load_pair(self, coin: str) -> Tuple[float, float]:
+        """Load models STRICTLY from Supabase. Returns (best_mape_1h, best_mape_5m) found in history."""
         coin = coin.upper()
-        if coin in self.loaded_models: return
+        if coin in self.loaded_models: 
+            return self.loaded_models[coin]['1h']['best_mape'], self.loaded_models[coin]['5m']['best_mape']
+
+        # TRIGGER CLEANUP ON STARTUP
+        try:
+            self._cleanup_old_models(coin, '1h')
+            self._cleanup_old_models(coin, '5m')
+        except: pass
 
         print(f"[MODEL MANAGER] Syncing portfolio dataset for {coin} from cloud storage...")
         
@@ -74,15 +81,30 @@ class ModelManager:
         path_1h_remote = self._download_from_supabase(coin, '1h')
         path_5m_remote = self._download_from_supabase(coin, '5m')
 
-        # 2. Strict Check: If cloud is empty, we STOP.
         if not path_1h_remote or not path_5m_remote:
             err_msg = f"[STRICT CLOUD ERROR] Critical neural files missing in Supabase for {coin}. Core initialization aborted."
             self._log_event(err_msg, type="ERROR", coin=coin)
             print(err_msg)
             raise FileNotFoundError(f"Missing required Cloud models for {coin} in 'model-brains/{coin}/latest/'")
 
+        # 2. Extract Best MAPEs from history filenames to restore neural memory
+        best_1h = 1.5; best_5m = 2.5
         try:
-            # SAKTI FIX: Use context managers for all joblib loads to prevent descriptor leaks
+            files = self.supabase.storage.from_('model-brains').list(f"{coin}/history")
+            for f in files:
+                if '_1H_mape_' in f['name']:
+                    try:
+                        m = float(f['name'].split('_mape_')[1].replace('.keras', ''))
+                        if m < best_1h: best_1h = m
+                    except: pass
+                elif '_5M_mape_' in f['name']:
+                    try:
+                        m = float(f['name'].split('_mape_')[1].replace('.keras', ''))
+                        if m < best_5m: best_5m = m
+                    except: pass
+        except: pass
+
+        try:
             key_1h = self._get_model_key(coin, '1h')
             m_1h = tf.keras.models.load_model(path_1h_remote)
             with open(os.path.join(self.models_dir, f"{key_1h}_scaler_x.pkl"), 'rb') as f:
@@ -100,13 +122,14 @@ class ModelManager:
             time_5m = datetime.fromtimestamp(os.path.getmtime(path_5m_remote)).strftime('%Y-%m-%d %H:%M')
 
             self.loaded_models[coin] = {
-                '1h': {'model': m_1h, 'scaler_x': s_x_1h, 'scaler_y': s_y_1h, 'last_save': time_1h},
-                '5m': {'model': m_5m, 'scaler_x': s_x_5m, 'scaler_y': s_y_5m, 'last_save': time_5m}
+                '1h': {'model': m_1h, 'scaler_x': s_x_1h, 'scaler_y': s_y_1h, 'last_save': time_1h, 'best_mape': best_1h},
+                '5m': {'model': m_5m, 'scaler_x': s_x_5m, 'scaler_y': s_y_5m, 'last_save': time_5m, 'best_mape': best_5m}
             }
             
-            msg = f"[STRICT CLOUD SYNC] Core network weights for {coin} are successfully deployed. Status: Operational."
+            msg = f"[STRICT CLOUD SYNC] Core network weights for {coin} are successfully deployed. Best MAPE: 1H={best_1h:.2f}%, 5M={best_5m:.2f}%"
             self._log_event(msg, coin=coin)
             print(msg)
+            return best_1h, best_5m
             
         except Exception as e:
             self._log_event(f"[CRITICAL FAILURE] Failed to initialize neural weights for {coin}: {e}", type="ERROR", coin=coin)
@@ -150,10 +173,46 @@ class ModelManager:
                 file=file_data, 
                 file_options={"content-type": "application/octet-stream"}
             )
+            
+            # TRIGGER CLEANUP AFTER UPLOAD
+            self._cleanup_old_models(coin, tf_label)
                 
             self._log_event(f"[SUPABASE CLOUD SYNC] Successfully committed updated matrix for {coin} {tf_label} to active node and timeline archives.", coin=coin)
         except Exception as e:
             self._log_event(f"[SUPABASE UPLOAD WARNING] Persistent backup sequence failed for {coin} {tf_label}: {e}", type="WARNING", coin=coin)
+
+    def _cleanup_old_models(self, coin: str, tf_label: str, keep_count: int = 5):
+        """
+        Maintains only the latest N models in Supabase 'history/' folder.
+        """
+        if not self.supabase: return
+        try:
+            coin = coin.upper()
+            path_history = f"{coin}/history"
+            
+            # List files in history folder
+            files = self.supabase.storage.from_('model-brains').list(path_history)
+            if not files: return
+            
+            # Filter by timeframe (e.g. '_1H_' or '_5M_')
+            tf_marker = f"_{tf_label.upper()}_"
+            tf_files = [f for f in files if tf_marker in f['name']]
+            
+            # Sort by filename (timestamp is in front YYYYMMDD-HHMM)
+            tf_files.sort(key=lambda x: x['name'])
+            
+            if len(tf_files) > keep_count:
+                num_to_delete = len(tf_files) - keep_count
+                files_to_delete = tf_files[:num_to_delete]
+                paths_to_delete = [f"{path_history}/{f['name']}" for f in files_to_delete]
+                
+                # Bulk delete
+                self.supabase.storage.from_('model-brains').remove(paths_to_delete)
+                print(f"[CLEANUP] Purged {num_to_delete} legacy neural files for {coin} {tf_label}. Storage optimized.")
+                self._log_event(f"[SYSTEM] Neural Garbage Collector: Purged {num_to_delete} old {tf_label} models for {coin}.", type="SYSTEM", coin=coin)
+                
+        except Exception as e:
+            print(f"[CLEANUP WARNING] Model garbage collection failed for {coin} {tf_label}: {e}")
 
     def save_single_model(self, coin: str, tf_label: str, current_mape: float) -> bool:
         """
@@ -168,6 +227,8 @@ class ModelManager:
             path = os.path.join(self.models_dir, f"{key}.keras")
             self.loaded_models[coin][tf_label]['model'].save(path)
             self.loaded_models[coin][tf_label]['last_save'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+            # Update internal best_mape to prevent regression in same session
+            self.loaded_models[coin][tf_label]['best_mape'] = current_mape
 
             # 2. Trigger Cloud Sync (Strict Overwrite)
             self._upload_to_supabase(coin, tf_label, path, current_mape)
@@ -203,14 +264,40 @@ class ModelManager:
         
         return assets['model'].train_on_batch(x_train, y_scaled)
 
-    def get_consensus_signal(self, coin: str, data_1h: np.ndarray, data_5m: np.ndarray, current_price: float) -> Dict:
+    def get_consensus_signal(self, coin: str, data_1h: np.ndarray, data_5m: np.ndarray, current_price: float, config: Optional[Dict] = None) -> Dict:
         coin = coin.upper(); self.load_pair(coin)
+        
+        # Default config if not provided
+        cfg = config or {
+            "conf_threshold": 0.70,
+            "signal_threshold": 0.5,
+            "use_macro": True
+        }
+        
         p1h, c1h = self.predict_tf(coin, '1h', data_1h, current_price)
         tr = "BULLISH" if ((p1h - current_price) / current_price) * 100 > 0.3 else "BEARISH" if ((p1h - current_price) / current_price) * 100 < -0.3 else "NEUTRAL"
+        
         p5m, c5m = self.predict_tf(coin, '5m', data_5m, current_price)
         ch5 = ((p5m - current_price) / current_price) * 100
-        sig5 = "BUY" if ch5 > 0.5 else "SELL" if ch5 < -0.5 else "WAIT"
+        
+        # Use dynamic signal threshold
+        sig_threshold = cfg.get("signal_threshold", 0.5)
+        sig5 = "BUY" if ch5 > sig_threshold else "SELL" if ch5 < -sig_threshold else "WAIT"
+        
         f_sig = "WAIT"
-        if tr == "BULLISH" and sig5 == "BUY": f_sig = "BUY"
-        elif tr == "BEARISH" and sig5 == "SELL": f_sig = "SELL"
-        return {"signal": f_sig, "trend_macro": tr, "confidence": (c1h + c5m) / 2, "predict_1h": p1h, "predict_5m": p5m, "change_5m_pct": ch5}
+        if cfg.get("use_macro", True):
+            if tr == "BULLISH" and sig5 == "BUY": f_sig = "BUY"
+            elif tr == "BEARISH" and sig5 == "SELL": f_sig = "SELL"
+        else:
+            # Macro bypass
+            f_sig = sig5
+            
+        return {
+            "signal": f_sig, 
+            "trend_macro": tr, 
+            "signal_micro": sig5,
+            "confidence": (c1h + c5m) / 2, 
+            "predict_1h": p1h, 
+            "predict_5m": p5m, 
+            "change_5m_pct": ch5
+        }
