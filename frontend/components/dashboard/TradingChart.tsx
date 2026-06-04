@@ -1,180 +1,101 @@
 "use client";
 
 import ReactECharts from "echarts-for-react";
-import { useRef } from "react";
-import { motion } from "framer-motion";
+import { useRef, useState, useEffect } from "react";
+import { BrainCircuit, Activity, History } from "lucide-react";
 
 interface TradingChartProps {
   data: any[];
-  prediction?: { price: number; change_pct: number };
+  prediction?: { price: number; confidence: number };
   predictionHistory?: { timestamp: number; price: number }[];
   trades?: any[];
-  obi?: number;
-  entryPrice?: number;
-  activePosition?: string | null;
 }
 
-export default function TradingChart({ 
-  data, 
-  prediction, 
-  predictionHistory = [], 
-  trades = [], 
-  obi = 0,
-  entryPrice = 0,
-  activePosition = null
+export default function TradingChart({
+  data,
+  prediction,
+  predictionHistory = [],
+  trades = []
 }: TradingChartProps) {
   const chartRef = useRef<any>(null);
+
+  const [layers, setLayers] = useState({
+    candlesticks: true,
+    aiTrace: true,
+    trades: true
+  });
+
+  useEffect(() => {
+    if (chartRef.current) {
+      const chartInstance = chartRef.current.getEchartsInstance();
+      chartInstance.resize();
+    }
+  }, [data, layers]);
 
   if (!data || data.length === 0) {
     return (
       <div className="w-full h-full flex items-center justify-center text-slate-300 italic font-medium">
-        Waiting for market data...
+        Waiting for neural matrix synchronization...
       </div>
     );
   }
 
-  const currentMarketPrice = data[data.length - 1].close;
+  const candlestickData = data.map((item: any) => [
+    item.open,
+    item.close,
+    item.low,
+    item.high,
+  ]);
 
-  const candlestickData = data.map((item) => [item.open, item.close, item.low, item.high]);
-  const timestamps = data.map((item) => {
+  const timestamps = data.map((item: any) => {
     const date = new Date(item.timestamp);
     return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
   });
-  
-  // "NEXT HR" sengaja dipertahankan agar AI punya ruang 1 slot untuk menggambar garis masa depan
-  const extendedTimestamps = [...timestamps, "NEXT HR"];
 
   const aiLineData = data.map((item) => {
-    const match = predictionHistory.find(p => Math.abs(p.timestamp - item.timestamp) <= 300000);
+    const match = predictionHistory.find(p => Math.abs(p.timestamp - item.timestamp) <= 60000);
     return match ? match.price : null;
   });
-  aiLineData.push(prediction?.price || null);
 
   const tradeAreas: any[] = [];
-  const tradeLines: any[] = [];
-  const tradeGroups: Record<string, any[]> = {};
-
-  const tradeList = Array.isArray(trades) ? trades : [];
-  tradeList.forEach(t => {
-    if (t && t.id) {
-      if (!tradeGroups[t.id]) tradeGroups[t.id] = [];
-      tradeGroups[t.id].push(t);
-    }
-  });
-
-  Object.values(tradeGroups).forEach(group => {
-    const sorted = group.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-    const open = sorted.find(t => t.type.startsWith('OPEN'));
-    const close = sorted.find(t => t.type.startsWith('CLOSE'));
-    
-    if (open) {
-      const openTime = new Date(open.time).getTime();
-      
-      let openIdx = -1;
+  if (layers.trades && Array.isArray(trades)) {
+    trades.forEach((t) => {
+      const entryTime = new Date(t.time).getTime();
+      let entryIdx = -1;
       let minDistance = Infinity;
       data.forEach((d, idx) => {
-        const dist = Math.abs(d.timestamp - openTime);
+        const dist = Math.abs(d.timestamp - entryTime);
         if (dist < minDistance) {
           minDistance = dist;
-          openIdx = idx;
+          entryIdx = idx;
         }
       });
 
-      const tfInterval = data.length > 1 ? data[1].timestamp - data[0].timestamp : 3600000;
-      
-      if (openIdx !== -1 && minDistance < tfInterval) {
-        let endIdx = data.length - 1;
-        let isLive = true;
-
-        if (close) {
-          isLive = false;
-          const closeTime = new Date(close.time).getTime();
-          let closeIdx = -1;
-          let minCloseDistance = Infinity;
-          
-          data.forEach((d, idx) => {
-            const dist = Math.abs(d.timestamp - closeTime);
-            if (dist < minCloseDistance) {
-              minCloseDistance = dist;
-              closeIdx = idx;
-            }
-          });
-          
-          if (closeIdx !== -1 && minCloseDistance < tfInterval) {
-            endIdx = closeIdx;
-          }
-        }
-
-        const typeLabel = open.type.includes('LONG') ? 'LONG' : 'SHORT';
-
+      if (entryIdx !== -1 && minDistance < 3600000) {
+        const isLong = t.type.includes('LONG') || t.type.includes('BUY');
         tradeAreas.push([
-          { 
-            xAxis: openIdx, 
-            itemStyle: { color: isLive ? 'rgba(139, 92, 246, 0.06)' : 'rgba(148, 163, 184, 0.02)' },
-            label: { 
-              show: true, 
-              position: 'insideTopLeft', 
-              formatter: isLive ? `LIVE ${typeLabel}` : `${typeLabel} CLOSED`, 
-              color: isLive ? '#8b5cf6' : '#94a3b8', 
-              fontWeight: '900', 
-              fontSize: 9,
-              distance: 15
-            } 
-          },
-          { xAxis: endIdx }
-        ]);
-
-        tradeLines.push([
           {
-            coord: [openIdx, open.price],
-            lineStyle: { 
-              color: isLive ? '#8b5cf6' : 'rgba(148, 163, 184, 0.4)', 
-              type: isLive ? 'solid' : 'dashed', 
-              width: isLive ? 2 : 1 
+            xAxis: entryIdx,
+            itemStyle: {
+              color: isLong ? 'rgba(168, 85, 247, 0.08)' : 'rgba(59, 130, 246, 0.08)',
+              borderWidth: 1,
+              borderColor: isLong ? 'rgba(168, 85, 247, 0.4)' : 'rgba(59, 130, 246, 0.4)',
+              borderType: 'dashed'
             },
             label: {
-              show: isLive,
-              position: 'start',
-              formatter: `OPEN ${typeLabel}: Rp ${open.price.toLocaleString('id-ID')}`,
-              backgroundColor: '#8b5cf6',
-              color: '#fff',
-              padding: [4, 6],
-              borderRadius: 4,
-              fontSize: 8,
-              fontWeight: 'bold'
+              show: true,
+              position: 'insideTopLeft',
+              formatter: isLong ? '🟩 LIVE LONG' : '🟦 LIVE SHORT',
+              color: isLong ? '#a855f7' : '#3b82f6',
+              fontWeight: '900',
+              fontSize: 9,
+              distance: 10
             }
           },
           {
-            coord: [endIdx, open.price]
+            xAxis: data.length - 1
           }
         ]);
-      }
-    }
-  });
-
-  const globalMarkLines: any[] = [...tradeLines];
-  if (prediction?.price && currentMarketPrice) {
-    const gapIdr = prediction.price - currentMarketPrice;
-    const gapPct = (gapIdr / currentMarketPrice) * 100;
-    const sign = gapIdr >= 0 ? '+' : '';
-    const gapColor = gapIdr >= 0 ? '#10b981' : '#f43f5e'; 
-
-    globalMarkLines.push({
-      yAxis: prediction.price,
-      name: 'TARGET',
-      lineStyle: { color: gapColor, type: 'dotted', width: 2 },
-      label: { 
-        show: true, 
-        position: 'end', 
-        formatter: `TARGET\n${sign}Rp ${Math.abs(Math.round(gapIdr)).toLocaleString('id-ID')}\n(${sign}${gapPct.toFixed(2)}%)`,
-        color: gapColor,
-        fontSize: 9,
-        fontWeight: 'bold',
-        backgroundColor: '#ffffff',
-        padding: [4, 6],
-        borderRadius: 4,
-        align: 'center',
-        lineHeight: 14
       }
     });
   }
@@ -183,96 +104,158 @@ export default function TradingChart({
     backgroundColor: 'transparent',
     animation: false,
     tooltip: {
-      trigger: 'axis', axisPointer: { type: 'cross' },
-      backgroundColor: 'rgba(255, 255, 255, 0.98)', padding: [12, 16], textStyle: { color: '#1e293b', fontSize: 12 },
-      extraCssText: 'box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); border-radius: 16px; border: 1px solid #f1f5f9; min-width: 250px;',
-      formatter: (p: any) => {
-        const c = p.find((x: any) => x.seriesName === 'Market Price');
-        const r = p.find((x: any) => x.seriesName === 'AI Trace');
-        let res = `<div style="font-weight: 900; color: #64748b; margin-bottom: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;">${p[0].name}</div>`;
-        
-        if (c && c.value[2] !== undefined) {
-            res += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px;"><span style="color: #94a3b8;">Market:</span><span style="font-weight: 900; color: #1e293b;">Rp ${Math.round(c.value[2]).toLocaleString('id-ID')}</span></div>`;
-        }
-        if (r && r.value !== null && !isNaN(r.value)) {
-            res += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px;"><span style="color: #f59e0b; font-weight: bold;">AI Trace:</span><span style="font-weight: 900; color: #f59e0b;">Rp ${Math.round(r.value).toLocaleString('id-ID')}</span></div>`;
-        }
-        
-        if (r && r.value !== null && !isNaN(r.value) && c && c.value[2] !== undefined) {
-           const gap = r.value - c.value[2];
-           const gapPct = (gap / c.value[2]) * 100;
-           const sign = gap >= 0 ? '+' : '';
-           const color = gap >= 0 ? '#10b981' : '#f43f5e';
-           res += `<div style="display: flex; justify-content: space-between; margin-bottom: 4px; padding-top: 6px; margin-top: 6px; border-top: 1px dashed #e2e8f0;">
-                     <span style="color: #64748b; font-size: 10px; text-transform: uppercase; font-weight: 800;">Target Gap:</span>
-                     <span style="font-weight: 900; color: ${color};">${sign}Rp ${Math.abs(Math.round(gap)).toLocaleString('id-ID')} (${sign}${gapPct.toFixed(2)}%)</span>
-                   </div>`;
+      trigger: 'axis',
+      axisPointer: { type: 'cross', lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+      backgroundColor: 'rgba(2, 6, 23, 0.92)',
+      padding: [12, 16],
+      textStyle: { color: '#f8fafc', fontSize: 11, fontFamily: 'Inter' },
+      extraCssText: 'box-shadow: 0 20px 40px -10px rgba(0,0,0,0.7); border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(16px); min-width: 220px;',
+      // SAKTI CUSTOM ENGINE FORMATTER: Kita saring data bising, sisakan hanya target lo!
+      formatter: (params: any) => {
+        let marketPrice = null;
+        let aiProjection = null;
+
+        // Ekstrak data aktif dari sumbu kursor mouse
+        params.forEach((p: any) => {
+          if (p.seriesName === 'Market Price') {
+            // Data candlestick ECharts berturut-turut: open, close, low, high. Kita ambil close (index 1)
+            marketPrice = p.data ? p.data[2] : null; 
+          }
+          if (p.seriesName === 'AI Projection') {
+            aiProjection = p.data;
+          }
+        });
+
+        if (!marketPrice) return '';
+
+        // Hitung Gap & Persentase jika proyeksi AI tersedia
+        let gapHtml = '';
+        if (aiProjection !== null && aiProjection !== undefined) {
+          const gapIdr = aiProjection - marketPrice;
+          const gapPct = (gapIdr / marketPrice) * 100;
+          const isUp = gapIdr >= 0;
+
+          gapHtml = `
+            <div style="margin-top: 10px; padding-top: 8px; border-t; border-style: dashed; border-color: rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 4px;">
+               <div style="display: flex; justify-content: space-between; gap: 16px;">
+                  <span style="color: #64748b; font-weight: bold; text-transform: uppercase; font-size: 9px; tracking-wider">AI Projection</span>
+                  <span style="color: #fbbf24; font-weight: 900; font-family: monospace;">Rp ${Math.floor(aiProjection).toLocaleString('id-ID')}</span>
+               </div>
+               <div style="display: flex; justify-content: space-between; gap: 16px;">
+                  <span style="color: #64748b; font-weight: bold; text-transform: uppercase; font-size: 9px; tracking-wider">Projected Gap</span>
+                  <span style="color: ${isUp ? '#10b981' : '#f43f5e'}; font-weight: 900; font-family: monospace;">
+                     ${isUp ? '+' : '-'}Rp ${Math.abs(Math.floor(gapIdr)).toLocaleString('id-ID')}
+                  </span>
+               </div>
+               <div style="display: flex; justify-content: space-between; gap: 16px;">
+                  <span style="color: #64748b; font-weight: bold; text-transform: uppercase; font-size: 9px; tracking-wider">Gap Percentage</span>
+                  <span style="color: ${isUp ? '#10b981' : '#f43f5e'}; font-weight: 900; font-family: monospace;">
+                     ${isUp ? '+' : ''}${gapPct.toFixed(2)}%
+                  </span>
+               </div>
+            </div>
+          `;
         }
 
-        return res;
+        // Output DOM Tooltip Mini Cyberpunk
+        return `
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; items-center; margin-bottom: 2px;">
+              <span style="color: #38bdf8; font-weight: 900; font-size: 10px; tracking-widest; text-transform: uppercase;">Zenith Matrix</span>
+              <span style="color: #475569; font-weight: bold; font-size: 9px; font-family: monospace;">${params[0].name}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; gap: 16px;">
+              <span style="color: #64748b; font-weight: bold; text-transform: uppercase; font-size: 9px; tracking-wider">Spot Price</span>
+              <span style="color: #fff; font-weight: 900; font-family: monospace;">Rp ${Math.floor(marketPrice).toLocaleString('id-ID')}</span>
+            </div>
+            ${gapHtml}
+          </div>
+        `;
       }
     },
-    // SAKTI FIX: Pangkas right margin dari 85 menjadi 45 agar Y-Axis merapat ke kiri
-    grid: { left: '1%', right: '45', bottom: '4%', top: '1%', containLabel: true },
-    xAxis: { type: 'category', data: extendedTimestamps, boundaryGap: true, axisLine: { lineStyle: { color: '#cbd5e1' } }, axisLabel: { color: '#94a3b8', fontSize: 10, margin: 15 }, splitLine: { show: false } },
-    yAxis: { 
-      type: 'value', 
-      scale: true, 
-      position: 'right', 
-      axisLine: { show: false }, 
-      axisLabel: { color: '#64748b', fontSize: 10, formatter: (v: number) => (v / 1e6).toFixed(1) + 'jt' }, 
-      splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } },
+    // Sumbu X nempel maksimal ke bawah kontainer canvas karena OBI sudah lepas
+    grid: { left: '10', right: '10', bottom: '2%', top: '15%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: timestamps,
+      boundaryGap: true,
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+      axisLabel: { color: '#64748b', fontSize: 10, margin: 10, fontFamily: 'Inter', fontWeight: 'bold' },
+      splitLine: { show: true, lineStyle: { color: 'rgba(255,255,255,0.02)' } }
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      position: 'right',
+      axisLine: { show: false },
+      axisLabel: {
+        color: '#64748b',
+        fontSize: 10,
+        fontFamily: 'Inter',
+        fontWeight: 'bold',
+        formatter: (v: number) => v.toLocaleString('id-ID')
+      },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)', type: 'dashed' } },
       min: (value: any) => Math.floor(value.min * 0.997),
       max: (value: any) => Math.ceil(value.max * 1.003)
     },
     series: [
       {
-        name: 'Market Price', type: 'candlestick', data: candlestickData,
-        itemStyle: { color: '#10b981', color0: '#f43f5e', borderColor: '#10b981', borderColor0: '#f43f5e', borderWidth: 1.5 },
-        markArea: { data: tradeAreas }
+        name: 'Market Price',
+        type: 'candlestick',
+        data: candlestickData,
+        itemStyle: {
+          color: '#10b981', color0: '#f43f5e',
+          borderColor: '#10b981', borderColor0: '#f43f5e',
+          opacity: layers.candlesticks ? 1 : 0
+        },
+        z: 5,
+        markArea: { silent: true, data: tradeAreas }
       },
-      {
-        name: 'AI Trace', type: 'line', data: aiLineData, smooth: true, showSymbol: true, symbol: 'circle', symbolSize: 4, connectNulls: true,
-        lineStyle: { color: '#f59e0b', width: 2, type: 'dashed' }, itemStyle: { color: '#f59e0b' },
-        markLine: { symbol: ['none', 'none'], data: globalMarkLines }
-      }
+      ...(layers.aiTrace ? [{
+        name: 'AI Projection',
+        type: 'line',
+        data: aiLineData,
+        smooth: true,
+        showSymbol: false,
+        connectNulls: true,
+        lineStyle: { color: '#fbbf24', width: 1.5, type: 'dashed'},
+        z: 10
+      }] : [])
     ]
   };
 
   return (
-    <div className="w-full h-full flex flex-col">
-      
-      <div className="flex-[0.85] w-full min-h-0 pl-10">
-        <ReactECharts ref={chartRef} option={option} style={{ height: '100%', width: '100%' }} notMerge={true} />
+    <div className="w-full h-full relative group/chart min-h-0">
+      {/* FLOATING CONTROLLERS PANEL */}
+      <div className="absolute top-4 left-6 z-30 flex items-center gap-2 bg-[#0f172a]/80 backdrop-blur-3xl border border-white/5 p-1.5 rounded-xl shadow-2xl">
+        <button
+          onClick={() => setLayers({ ...layers, aiTrace: !layers.aiTrace })}
+          className={`p-2 rounded-lg transition-all ${layers.aiTrace ? 'bg-amber-500/20 text-amber-400 border border-amber-500/10 shadow-[0_0_12px_rgba(251,191,36,0.15)]' : 'text-slate-600 hover:text-slate-400 border border-transparent'}`}
+        >
+          <BrainCircuit className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => setLayers({ ...layers, candlesticks: !layers.candlesticks })}
+          className={`p-2 rounded-lg transition-all ${layers.candlesticks ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.15)]' : 'text-slate-600 hover:text-slate-400 border border-transparent'}`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => setLayers({ ...layers, trades: !layers.trades })}
+          className={`p-2 rounded-lg transition-all ${layers.trades ? 'bg-purple-500/20 text-purple-400 border border-purple-500/10 shadow-[0_0_12px_rgba(168,85,247,0.15)]' : 'text-slate-600 hover:text-slate-400 border border-transparent'}`}
+        >
+          <History className="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      {/* LIQUIDITY OVERLAY / OBI (Tebal proporsional & Label disesuaikan) */}
-      <div className="flex-[0.15] w-full flex flex-col justify-center px-10 border-t border-slate-100 bg-white/50 backdrop-blur-sm">
-        <div className="flex justify-between items-end mb-3 text-[8px] font-black uppercase tracking-[0.2em]">
-          <div className="text-emerald-500 flex flex-col"><span>Bids</span><span>Depth</span></div>
-          <div className="text-slate-900 text-base font-black">{(obi || 0).toFixed(2)}</div>
-          <div className="text-rose-500 text-right flex flex-col"><span>Asks</span><span>Depth</span></div>
-        </div>
-        
-        {/* SAKTI FIX: Ubah dari h-2 menjadi h-4 dengan inner shadow agar terlihat lebih tebal dan solid */}
-        <div className="relative h-4 w-full bg-slate-200/50 rounded-full flex overflow-hidden border border-white shadow-inner">
-          <motion.div
-            animate={{ width: `${50 + (obi || 0) * 50}%`, backgroundColor: obi > 0.05 ? '#10b981' : '#cbd5e1' }}
-            className="h-full transition-all duration-700 ease-out"
-          />
-          <motion.div
-            animate={{ backgroundColor: obi < -0.05 ? '#f43f5e' : '#cbd5e1' }}
-            className="h-full flex-1 transition-all duration-700 ease-out"
-          />
-          <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/80 z-10" />
-          {Math.abs(obi) > 0.1 && (
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: [0.2, 0.5, 0.2] }} transition={{ repeat: Infinity, duration: 2 }}
-              className={`absolute inset-y-0 w-1/4 blur-md ${obi > 0 ? 'left-0 bg-emerald-400' : 'right-0 bg-rose-400'}`}
-            />
-          )}
-        </div>
-      </div>
+      <ReactECharts
+        ref={chartRef}
+        option={option}
+        style={{ height: '100%', width: '100%' }}
+        notMerge={true}
+        autoResize={true}
+      />
     </div>
   );
 }

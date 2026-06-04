@@ -13,8 +13,20 @@ const fetcher = async (url: string) => {
   }
 };
 
+// SAKTI OPTIMIZATION: Global config for SWR hooks
+const swrOptions = {
+  revalidateOnFocus: false, // Prevent redundant fetches when switching tabs
+  shouldRetryOnError: false
+};
+
 export function useBotStatus() {
-  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/status`, fetcher, { refreshInterval: 5000 });
+  // 🚀 LIVE METRICS: 2s for current active node details
+  const { data, error, isLoading } = useSWR(
+    `${getApiUrl()}/api/status`, 
+    fetcher, 
+    { ...swrOptions, refreshInterval: 2000 }
+  );
+  
   return { 
     status: data || { 
       coin: 'BTC', 
@@ -32,41 +44,61 @@ export function useBotStatus() {
 }
 
 export function useAllAssetsStatus() {
-  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/all_status`, fetcher, { refreshInterval: 5000 });
+  // 🚀 MAIN ECOSYSTEM SYNC: 5s for global balance and asset nodes
+  const { data, error, isLoading } = useSWR(
+    `${getApiUrl()}/api/all_status`, 
+    fetcher, 
+    { ...swrOptions, refreshInterval: 5000 }
+  );
   
-  const assets = data?.assets || {};
-  const vault = data?.vault || 0;
-  const totalNetPnl = data?.total_net_pnl || 0;
-  const dailyTarget = data?.daily_target || 150000;
-  const manualConfig = data?.manual_config || null;
-  const cashBalance = data?.total_cash || Object.values(assets)[0]?.balance_idr || 0;
+  const assets = data?.assets;
+  const vault = data?.vault;
+  const totalNetPnl = data?.total_net_pnl;
+  const totalAllocated = data?.total_allocated;
+  const dailyTarget = data?.daily_target;
+  const manualConfig = data?.manual_config;
+  const cashBalance = data?.total_cash;
 
   return { 
-    allStatus: assets, 
+    allStatus: assets || {}, 
     vault, 
     totalNetPnl, 
+    totalAllocated,
     dailyTarget,
     manualConfig,
     cashBalance,
-    isError: error, 
+    isError: !!error || data === null, 
     isLoading
   };
 }
 
 export function useEventLog() {
-  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/events`, fetcher, { refreshInterval: 10000 });
+  // 🚀 TELEMETRY: 10s is sufficient for system logs
+  const { data, error, isLoading } = useSWR(
+    `${getApiUrl()}/api/events`, 
+    fetcher, 
+    { ...swrOptions, refreshInterval: 10000 }
+  );
   return { events: data || [], isError: error, isLoading };
 }
 
-// SAKTI HYBRID LEDGER: Merges RAM trades and Supabase trades
 export function useUnifiedTrades() {
-  const { data: ramTrades } = useSWR(`${getApiUrl()}/api/trades`, fetcher, { refreshInterval: 5000 });
-  const { data: dbTrades } = useSWR(`${getApiUrl()}/api/persistent_trades`, fetcher, { refreshInterval: 15000 });
+  // 🚀 LEDGER SYNC: RAM is 10s, DB (history) is 60s
+  const { data: ramTrades } = useSWR(
+    `${getApiUrl()}/api/trades`, 
+    fetcher, 
+    { ...swrOptions, refreshInterval: 10000 }
+  );
+  const { data: dbTrades } = useSWR(
+    `${getApiUrl()}/api/persistent_trades`, 
+    fetcher, 
+    { ...swrOptions, refreshInterval: 60000 } // Rare refresh for long history
+  );
 
   const ram = Array.isArray(ramTrades) ? ramTrades : [];
   const db = Array.isArray(dbTrades) ? dbTrades : [];
 
-  // Merge and De-duplicate (using time/timestamp as key)
+  // Merge and De-duplicate
   const combined = [...ram];
   db.forEach(dt => {
     const exists = combined.some(rt => rt.time === dt.time && rt.coin === dt.coin);
@@ -79,14 +111,23 @@ export function useUnifiedTrades() {
   };
 }
 
-// SAKTI PERSISTENCE: Hook to fetch neural evolution milestones
 export function useNeuralCheckpoints() {
-  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/checkpoints`, fetcher, { refreshInterval: 30000 });
+  // 🚀 EVOLUTION RECORDS: 60s as models don't evolve every second
+  const { data, error, isLoading } = useSWR(
+    `${getApiUrl()}/api/checkpoints`, 
+    fetcher, 
+    { ...swrOptions, refreshInterval: 60000 }
+  );
   return { checkpoints: data || [], isError: error, isLoading };
 }
 
 export function useMarketData() {
-  const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/chart`, fetcher, { refreshInterval: 10000 });
+  // 🚀 VISUAL CHART: 10s to match candle close cycle focus
+  const { data, error, isLoading } = useSWR(
+    `${getApiUrl()}/api/chart`, 
+    fetcher, 
+    { ...swrOptions, refreshInterval: 10000 }
+  );
   return { 
     marketData: data?.ohlcv || [], 
     prediction: data?.prediction || null,

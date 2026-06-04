@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEventLog } from "@/hooks/useDashboardData";
+import { useEventLog, useNeuralCheckpoints } from "@/hooks/useDashboardData";
 import { toggleApiNode, getCurrentNode } from "@/lib/constants";
 
 const menuItems = [
@@ -24,7 +24,18 @@ export default function Sidebar() {
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const { events } = useEventLog();
+  const { checkpoints } = useNeuralCheckpoints();
   const currentNode = getCurrentNode();
+
+  const combinedFeed = [
+    ...(Array.isArray(events) ? events.map(e => ({ ...e, feedType: 'EVENT' })) : []),
+    ...(Array.isArray(checkpoints) ? checkpoints.map(c => ({ 
+       time: c.created_at, 
+       message: `Evolution! ${c.coin} ${c.timeframe} MAPE: ${c.new_mape.toFixed(2)}%`, 
+       type: 'RECORD',
+       feedType: 'CHECKPOINT'
+    })) : [])
+  ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 10);
 
   useEffect(() => {
     setMounted(true);
@@ -159,16 +170,16 @@ export default function Sidebar() {
                             </span>
                         </div>
                         <div className="space-y-8 max-h-[500px] overflow-y-auto no-scrollbar pr-2">
-                            {events.length === 0 ? (
+                            {combinedFeed.length === 0 ? (
                                 <p className="text-[10px] text-slate-700 italic text-center py-32 uppercase tracking-[0.3em]">Waiting for neural synapse activity...</p>
-                            ) : events.slice().reverse().map((ev: any, i: number) => (
+                            ) : combinedFeed.map((ev: any, i: number) => (
                                 <div key={i} className="flex flex-col gap-3 p-6 rounded-2xl bg-white/[0.01] border border-white/5 hover:bg-white/[0.03] transition-all group/log">
                                     <div className="flex items-center justify-between opacity-30 group-hover/log:opacity-100 transition-opacity">
                                         <div className="flex items-center gap-3">
                                             <div className={cn("w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor]", ev.type === 'ERROR' ? 'text-rose-500 bg-rose-500' : 'text-emerald-500 bg-emerald-500')} />
                                             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{new Date(ev.time).toLocaleTimeString('id-ID')}</span>
                                         </div>
-                                        <span className="text-[9px] font-black text-slate-800 uppercase tracking-widest">SEQ_{i}</span>
+                                        <span className="text-[9px] font-black text-slate-800 uppercase tracking-widest">{ev.feedType}</span>
                                     </div>
                                     <p className="text-xs font-bold text-slate-300 leading-relaxed uppercase tracking-tight">{ev.message}</p>
                                 </div>
