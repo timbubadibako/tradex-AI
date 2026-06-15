@@ -1,8 +1,33 @@
+# Dependencies
+venv_zenith/
 bot_scalper/
-frontend/.next/
 frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+backend/venv/
+__pycache__/
+
+# Secrets & Config
+.env
+.env.*
+!frontend/.env.example
+
+# Models & Data
 *.pkl
 *.keras
 *.csv
-__pycache__
-.env
+backend/models/
+
+# Documentation & Design
+design-system/
+docs/
+
+# Agent/AI Metadata
+.gemini/
+.agents/
+AGENTS.md
+CLAUDE.md
+
+# OS/System files
+.DS_Store
+*.log

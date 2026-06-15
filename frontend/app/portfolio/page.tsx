@@ -19,6 +19,9 @@ export default function PortfolioPage() {
   // Calculate total global crypto holdings
   const coins = ['BTC', 'ETH', 'SOL'];
   const activePositions = coins.filter(c => Math.abs((allStatus[c]?.btc_holdings || 0) - 0.5) > 0.00000001).length;
+  
+  // Calculate total equity based on available status
+  const totalEquity = Object.values(allStatus).reduce((sum, asset: any) => sum + (asset?.balance_idr || 0), 0);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
@@ -52,7 +55,7 @@ export default function PortfolioPage() {
                 <div className="absolute top-0 right-0 -mt-4 -mr-4 w-32 h-32 bg-sky-500/10 rounded-full blur-2xl group-hover:bg-sky-500/20 transition-all duration-700" />
                 <div className="flex items-center gap-3 mb-8 opacity-80 relative z-10"><Wallet className="w-6 h-6 text-sky-400" /><h3 className="font-black text-xs uppercase tracking-widest leading-none">Total Pooled Equity</h3></div>
                 <h2 className="text-4xl lg:text-5xl font-black tracking-tighter leading-none mb-6 relative z-10">
-                   Rp {(status?.equity ?? 0).toLocaleString('id-ID')}
+                   Rp {totalEquity.toLocaleString('id-ID')}
                 </h2>
                 <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest relative z-10 text-slate-400">
                    <span>OPERATIONAL CASH: Rp {(cashBalance ?? 0).toLocaleString('id-ID')}</span>

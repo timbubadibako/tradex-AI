@@ -47,7 +47,7 @@ manager = ModelManager(MODELS_DIR, event_log=global_event_log)
 asset_states = {coin: {
     "market_data_1h": [], "market_data_5m": [], "trade_history": [],
     "prediction_history_1h": [], "prediction_history_5m": [],
-    "bot_status": {"winrate": 0, "profit_pct": 0, "error_rate_1h": 0.85, "error_rate_5m": 0.45, "best_error_rate_1h": 100.0, "best_error_rate_5m": 100.0},
+    "bot_status": {"winrate": 0, "profit_pct": 0, "error_rate_1h": 0.0, "error_rate_5m": 0.0, "best_error_rate_1h": 100.0, "best_error_rate_5m": 100.0},
     "prediction_1h": {"price": 0, "confidence": 0}, "prediction_5m": {"price": 0, "confidence": 0},
     "consensus": {"signal": "WAIT", "trend_macro": "NEUTRAL", "signal_micro": "WAIT", "confidence": 0},
     "quant": {"obi": 0.0, "atr": 0.0, "current_price": 0.0},
@@ -423,6 +423,7 @@ async def bot_thinker():
             await asyncio.sleep(15)
         except Exception as e: 
             print(f"[THINKER ERROR] {e}")
+            import traceback; traceback.print_exc()
             if not stop_event.is_set(): await asyncio.sleep(10)
 
 if __name__ == "__main__":

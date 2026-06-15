@@ -25,7 +25,6 @@ from model_manager import ModelManager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 import uvicorn
 
 # 1. CONFIGURATION
@@ -47,7 +46,7 @@ manager = ModelManager(MODELS_DIR, event_log=global_event_log)
 asset_states = {coin: {
     "market_data_1h": [], "market_data_5m": [], "trade_history": [],
     "prediction_history_1h": [], "prediction_history_5m": [],
-    "bot_status": {"winrate": 0, "profit_pct": 0, "error_rate_1h": 0.0, "error_rate_5m": 0.0, "best_error_rate_1h": 100.0, "best_error_rate_5m": 100.0},
+    "bot_status": {"winrate": 0, "profit_pct": 0, "error_rate_1h": 0.85, "error_rate_5m": 0.45, "best_error_rate_1h": 100.0, "best_error_rate_5m": 100.0},
     "prediction_1h": {"price": 0, "confidence": 0}, "prediction_5m": {"price": 0, "confidence": 0},
     "consensus": {"signal": "WAIT", "trend_macro": "NEUTRAL", "signal_micro": "WAIT", "confidence": 0},
     "quant": {"obi": 0.0, "atr": 0.0, "current_price": 0.0},
@@ -80,8 +79,10 @@ class TradingSandbox:
         if self.active_position is None and self.balance_idr >= (lot * price):
             self.active_position = 'LONG'; self.entry_price = price; self.active_lot = lot
             self.balance_idr -= (lot * price) * (1 + TRADING_FEE); self.btc_holdings += lot
+            
             trade = {'coin': coin, 'type': 'OPEN_LONG', 'price': price, 'lot': lot, 'time': datetime.now().isoformat(), 'pnl': 0, 'status': 'OPEN'}
-            asset_states[coin]['trade_history'].insert(0, trade); manager.log_trade(trade)
+            asset_states[coin]['trade_history'].insert(0, trade)
+            manager.log_trade(trade) # Permanent sync
             return True
         return False
 
@@ -90,12 +91,16 @@ class TradingSandbox:
             rev = (self.active_lot * price) * (1 - TRADING_FEE); pnl = rev - (self.active_lot * self.entry_price * (1 + TRADING_FEE))
             self.balance_idr += rev; self.btc_holdings -= self.active_lot; self.realized_pnl += pnl
             self.active_position = None; asset_states[coin]['rl_reward'] += pnl
+            
+            # RL Evolution
             bias_change = 0.05 if pnl > 0 else -0.07
             manager.loaded_models[coin]['1h']['rl_bias'] = max(-0.3, min(0.3, manager.loaded_models[coin]['1h']['rl_bias'] + bias_change))
             manager.loaded_models[coin]['5m']['rl_bias'] = max(-0.3, min(0.3, manager.loaded_models[coin]['5m']['rl_bias'] + bias_change))
             manager.push_neural_memory(coin, '1h'); manager.push_neural_memory(coin, '5m')
+            
             trade = {'coin': coin, 'type': 'CLOSE_LONG', 'price': price, 'lot': self.active_lot, 'time': datetime.now().isoformat(), 'pnl': pnl, 'status': 'CLOSED'}
-            asset_states[coin]['trade_history'].insert(0, trade); manager.log_trade(trade)
+            asset_states[coin]['trade_history'].insert(0, trade)
+            manager.log_trade(trade)
             return True
         return False
 
@@ -103,8 +108,10 @@ class TradingSandbox:
         if self.active_position is None:
             self.active_position = 'SHORT'; self.entry_price = price; self.active_lot = lot
             self.btc_holdings -= lot
+            
             trade = {'coin': coin, 'type': 'OPEN_SHORT', 'price': price, 'lot': lot, 'time': datetime.now().isoformat(), 'pnl': 0, 'status': 'OPEN'}
-            asset_states[coin]['trade_history'].insert(0, trade); manager.log_trade(trade)
+            asset_states[coin]['trade_history'].insert(0, trade)
+            manager.log_trade(trade)
             return True
         return False
 
@@ -113,12 +120,15 @@ class TradingSandbox:
             cost = (self.active_lot * price) * (1 + TRADING_FEE); rev = (self.active_lot * self.entry_price) * (1 - TRADING_FEE); pnl = rev - cost
             self.balance_idr += pnl; self.btc_holdings += self.active_lot; self.realized_pnl += pnl
             self.active_position = None; asset_states[coin]['rl_reward'] += pnl
+            
             bias_change = 0.05 if pnl > 0 else -0.07
             manager.loaded_models[coin]['1h']['rl_bias'] = max(-0.3, min(0.3, manager.loaded_models[coin]['1h']['rl_bias'] + bias_change))
             manager.loaded_models[coin]['5m']['rl_bias'] = max(-0.3, min(0.3, manager.loaded_models[coin]['5m']['rl_bias'] + bias_change))
             manager.push_neural_memory(coin, '1h'); manager.push_neural_memory(coin, '5m')
+            
             trade = {'coin': coin, 'type': 'CLOSE_SHORT', 'price': price, 'lot': self.active_lot, 'time': datetime.now().isoformat(), 'pnl': pnl, 'status': 'CLOSED'}
-            asset_states[coin]['trade_history'].insert(0, trade); manager.log_trade(trade)
+            asset_states[coin]['trade_history'].insert(0, trade)
+            manager.log_trade(trade)
             return True
         return False
 
@@ -143,17 +153,6 @@ def pull_bot_state():
         print("[CLOUD] Evolution state synchronized.")
     except: pass
 
-def fetch_predictions_from_db(coin: str, tf_label: str):
-    if not manager.supabase: return []
-    try:
-        res = manager.supabase.table("predictions").select("created_at, predicted_price").eq("coin", coin.upper()).eq("timeframe", tf_label).order("created_at", desc=True).limit(100).execute()
-        history = []
-        for row in reversed(res.data):
-            dt = datetime.fromisoformat(row['created_at'].replace('Z', '+00:00'))
-            history.append({"timestamp": int(dt.timestamp() * 1000), "price": float(row['predicted_price'])})
-        return history
-    except: return []
-
 def get_status():
     s = asset_states[CURRENT_COIN]; p_obj = s['prediction_1h' if CURRENT_TF == '1h' else 'prediction_5m']; con = s['consensus']
     return {"coin": CURRENT_COIN, "tf": CURRENT_TF, "balance_idr": sandboxes[CURRENT_COIN].balance_idr, "btc_holdings": sandboxes[CURRENT_COIN].btc_holdings, "error_rate": s['bot_status'].get('error_rate_1h' if CURRENT_TF == '1h' else 'error_rate_5m', 0), "obi": s['quant']['obi'], "prediction": {"price": p_obj['price'], "confidence": p_obj['confidence'], "signal": con.get('signal', 'WAIT'), "macro": con.get('trend_macro', 'NEUTRAL'), "micro": con.get('signal_micro', 'WAIT')}}
@@ -163,14 +162,7 @@ def get_all_status():
     for c in AVAILABLE_ASSETS:
         sb = sandboxes[c]; s = asset_states[c]; curr_p = s['quant'].get('current_price', 0)
         rel = sb.get_net_pnl_idr(curr_p) - sb.daily_pnl_start; total_rel += rel
-        p1 = s['prediction_1h'].get('price', 0); p5 = s['prediction_5m'].get('price', 0)
-        data[c] = {
-            "mape_1h": s['bot_status']['error_rate_1h'], "mape_5m": s['bot_status']['error_rate_5m'], 
-            "best_mape_1h": s['bot_status']['best_error_rate_1h'], "best_mape_5m": s['bot_status']['best_error_rate_5m'], 
-            "net_pnl": sb.get_net_pnl_idr(curr_p), "btc_holdings": sb.btc_holdings, "balance_idr": sb.balance_idr, 
-            "obi": s['quant']['obi'], "pulse": s['active_pulse'], "last_training": s['last_training'], "rl_score": s['rl_reward'],
-            "current_price": curr_p, "pred_price_1h": p1, "pred_price_5m": p5
-        }
+        data[c] = {"mape_1h": s['bot_status']['error_rate_1h'], "mape_5m": s['bot_status']['error_rate_5m'], "best_mape_1h": s['bot_status']['best_error_rate_1h'], "best_mape_5m": s['bot_status']['best_error_rate_5m'], "net_pnl": sb.get_net_pnl_idr(curr_p), "btc_holdings": sb.btc_holdings, "balance_idr": sb.balance_idr, "obi": s['quant']['obi'], "pulse": s['active_pulse'], "last_training": s['last_training'], "rl_score": s['rl_reward']}
     return {"assets": data, "vault": vault_balance_idr, "daily_target": daily_target_idr, "total_net_pnl": total_rel, "manual_config": manual_override_config}
 
 def generate_monitor_html():
@@ -184,14 +176,8 @@ def generate_monitor_html():
     html += "</tbody></table></div></body></html>"
     return html
 
-# 4. APP & LIFESPAN
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    asyncio.create_task(bot_thinker())
-    asyncio.create_task(ticker_loop())
-    yield
-
-app = FastAPI(lifespan=lifespan)
+# 4. APP & ENDPOINTS
+app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/monitor", response_class=HTMLResponse)
@@ -199,130 +185,18 @@ def api_monitor(): return generate_monitor_html()
 @app.get("/api/all_status")
 def api_all(): return get_all_status()
 @app.get("/api/status")
-def api_st(): return get_status()
-@app.get("/api/trades")
-def api_tr():
-    all_t = []
-    for c in AVAILABLE_ASSETS: all_t.extend(asset_states[c]['trade_history'])
-    return sorted(all_t, key=lambda x: x['time'], reverse=True)
-@app.get("/api/persistent_trades")
-def api_pt():
-    if not manager.supabase: return []
-    try:
-        res = manager.supabase.table("trade_ledger").select("*").order("time", desc=True).limit(50).execute()
-        return res.data
-    except: return []
-@app.get("/api/checkpoints")
-def api_cp():
-    if not manager.supabase: return []
-    try:
-        res = manager.supabase.table("neural_checkpoints").select("*").order("created_at", desc=True).limit(20).execute()
-        return res.data
-    except: return []
-@app.get("/api/events")
-def api_ev(): return global_event_log[-50:]
+def api_status_ep(): return get_status()
 @app.get("/api/chart")
-def api_ch():
+def api_chart():
     try:
-        s = asset_states[CURRENT_COIN]
-        ohlcv = s['market_data_1h'] if CURRENT_TF == '1h' else s['market_data_5m']
-        p_obj = s['prediction_1h' if CURRENT_TF == '1h' else 'prediction_5m']
-        h = s['prediction_history_1h' if CURRENT_TF == '1h' else 'prediction_history_5m']
-        return {"ohlcv": ohlcv, "prediction": p_obj, "prediction_history": h}
+        s = asset_states[CURRENT_COIN]; ohlcv = s['market_data_1h'] if CURRENT_TF == '1h' else s['market_data_5m']; p_obj = s['prediction_1h' if CURRENT_TF == '1h' else 'prediction_5m']
+        return {"ohlcv": ohlcv, "prediction": p_obj, "prediction_history": []}
     except: return {"ohlcv": [], "prediction": {"price": 0, "confidence": 0}, "prediction_history": []}
-
-@app.get("/api/safety")
-def api_safety():
-    return safety_settings
-
-@app.post("/api/update_safety")
-async def update_safety(sl: float, tp: float):
-    safety_settings['sl_atr_mult'] = sl
-    safety_settings['tp_atr_mult'] = tp
-    return {"status": "success"}
-
-@app.post("/api/panic_sell")
-def panic_sell():
-    """Force liquidation of all active positions and pause engine."""
-    safety_settings['emergency_stop'] = True
-    liquidated_count = 0
-    
-    for c in AVAILABLE_ASSETS:
-        sb = sandboxes[c]
-        curr_p = asset_states[c]['quant']['current_price']
-        
-        if sb.active_position == 'LONG':
-            sb.close_long(c, curr_p)
-            liquidated_count += 1
-            print(f"[EMERGENCY] Liquidated LONG position for {c}")
-            
-        elif sb.active_position == 'SHORT':
-            sb.close_short(c, curr_p)
-            liquidated_count += 1
-            print(f"[EMERGENCY] Liquidated SHORT position for {c}")
-            
-        # Push the finalized empty state to cloud
-        manager.push_neural_memory(c, '1h')
-        manager.push_neural_memory(c, '5m')
-
-    global_event_log.append({
-        "time": datetime.now().isoformat(), 
-        "message": f"PANIC PROTOCOL TRIGGERED. Liquidated {liquidated_count} positions. Engine paused.", 
-        "type": "WARNING"
-    })
-    
-    return {"status": "success", "liquidated": liquidated_count}
 
 @app.post("/api/set_coin")
 def set_c(coin: str): global CURRENT_COIN; CURRENT_COIN = coin.upper(); return {"status": "success"}
 @app.post("/api/set_timeframe")
 def set_t(tf: str): global CURRENT_TF; CURRENT_TF = tf; return {"status": "success"}
-
-@app.post("/api/update_manual_config")
-async def update_cfg(active: str, conf: float, sig: float, macro: str):
-    global manual_override_config
-    manual_override_config = {
-        "active": active.lower() == 'true', 
-        "conf_threshold": conf, 
-        "signal_threshold": sig, 
-        "use_macro": macro.lower() == 'true'
-    }
-    return {"status": "success"}
-
-@app.post("/api/update_daily_target")
-async def update_target(target: float):
-    global daily_target_idr
-    daily_target_idr = target
-    push_bot_state('global')
-    return {"status": "success"}
-
-@app.post("/api/update_safety")
-async def update_safety(sl: float, tp: float):
-    safety_settings['sl_atr_mult'] = sl
-    safety_settings['tp_atr_mult'] = tp
-    return {"status": "success"}
-
-@app.post("/api/panic_sell")
-def panic_sell():
-    """Force liquidation of all active positions and pause engine."""
-    safety_settings['emergency_stop'] = True
-    liquidated_count = 0
-    for c in AVAILABLE_ASSETS:
-        sb = sandboxes[c]
-        curr_p = asset_states[c]['quant']['current_price']
-        if sb.active_position == 'LONG':
-            sb.close_long(c, curr_p)
-            liquidated_count += 1
-        elif sb.active_position == 'SHORT':
-            sb.close_short(c, curr_p)
-            liquidated_count += 1
-    
-    global_event_log.append({
-        "time": datetime.now().isoformat(), 
-        "message": f"PANIC PROTOCOL TRIGGERED. Liquidated {liquidated_count} positions. Engine paused.", 
-        "type": "WARNING"
-    })
-    return {"status": "success", "liquidated": liquidated_count}
 
 # 5. LOOPS
 async def ticker_loop():
@@ -330,7 +204,6 @@ async def ticker_loop():
         try:
             for c in AVAILABLE_ASSETS:
                 ticker = await ex_async.fetch_ticker(f"{c}/IDR"); curr_p = float(ticker['last'])
-                await asyncio.sleep(0.5)
                 ob = await ex_async.fetch_order_book(f"{c}/IDR", limit=20); mid = (ob['bids'][0][0] + ob['asks'][0][0]) / 2
                 w_b = sum([v * np.exp(-50 * abs(p - mid) / mid) for p, v in ob['bids']]); w_a = sum([v * np.exp(-50 * abs(p - mid) / mid) for p, v in ob['asks']])
                 obi_val = (w_b - w_a) / (w_b + w_a); global_smoothed_obi[c] = (obi_val * 0.2) + (global_smoothed_obi[c] * 0.8)
@@ -348,35 +221,22 @@ async def ticker_loop():
                         elif res.get('signal') == 'SELL' and global_smoothed_obi[c] < -0.03:
                             if sb.active_position == 'LONG': sb.close_long(c, curr_p)
                             if sb.open_short(c, curr_p, dynamic_lot): pass
-                await asyncio.sleep(1)
             await asyncio.sleep(5)
         except: await asyncio.sleep(5)
 
 async def bot_thinker():
-    print("[INIT] Core Intelligence Setup...")
-    for c in AVAILABLE_ASSETS: 
-        b1, b5 = manager.load_pair(c)
-        asset_states[c]['bot_status'].update({'best_error_rate_1h': b1, 'best_error_rate_5m': b5})
-        asset_states[c]['prediction_history_1h'] = fetch_predictions_from_db(c, '1h')
-        asset_states[c]['prediction_history_5m'] = fetch_predictions_from_db(c, '5m')
+    print("[INIT] Core Intelligence Cloud Setup...")
+    for c in AVAILABLE_ASSETS: b1, b5 = manager.load_pair(c); asset_states[c]['bot_status'].update({'best_error_rate_1h': b1, 'best_error_rate_5m': b5})
     pull_bot_state()
 
     while not stop_event.is_set():
         try:
-            btc_1h_raw = await ex_async.fetch_ohlcv('BTC/IDR', '1h', limit=150)
-            await asyncio.sleep(1.5)
-            btc_5m_raw = await ex_async.fetch_ohlcv('BTC/IDR', '5m', limit=150)
-            await asyncio.sleep(1.5)
-            
-            btc_1h = pd.DataFrame(btc_1h_raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            btc_5m = pd.DataFrame(btc_5m_raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            btc_1h_raw = await ex_async.fetch_ohlcv('BTC/IDR', '1h', limit=150); btc_5m_raw = await ex_async.fetch_ohlcv('BTC/IDR', '5m', limit=150)
+            btc_1h = pd.DataFrame(btc_1h_raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']); btc_5m = pd.DataFrame(btc_5m_raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
             for coin in AVAILABLE_ASSETS:
                 asset_states[coin]['active_pulse'] = "Thinking..."
-                o1_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '1h', limit=150)
-                await asyncio.sleep(1.5)
-                o5_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '5m', limit=150)
-                await asyncio.sleep(1.5)
+                o1_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '1h', limit=150); o5_raw = await ex_async.fetch_ohlcv(f"{coin}/IDR", '5m', limit=150)
                 
                 def process_df(ohlcv, btc_df=None):
                     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -401,34 +261,30 @@ async def bot_thinker():
 
                 curr_p = float(df5.iloc[-1]['close']); ts1, ts5 = int(df1.iloc[-1]['timestamp']), int(df5.iloc[-1]['timestamp']); s = asset_states[coin]
 
-                # REINFORCED ONLINE LEARNING
+                # --- 24/7 REINFORCED CLOUD LEARNING ---
                 if ts1 != s['last_ts_1h']:
                     if s['last_input_1h'] is not None:
-                        manager.online_learn(coin, '1h', s['last_input_1h'], curr_p)
+                        s['active_pulse'] = "Learning (1H)..."; manager.online_learn(coin, '1h', s['last_input_1h'], curr_p)
                         err = abs(s['prediction_1h']['price'] - curr_p) / curr_p; curr_m = (err * 100 * 0.1) + (s['bot_status']['error_rate_1h'] * 0.9); s['bot_status']['error_rate_1h'] = curr_m
                         if curr_m < s['bot_status']['best_error_rate_1h']: s['bot_status']['best_error_rate_1h'] = curr_m; manager.save_single_model(coin, '1h', curr_m)
-                    new_in = get_inp(df1, '1h'); p_p, _ = manager.predict_tf(coin, '1h', new_in, curr_p)
-                    s['prediction_1h'] = {"price": p_p, "confidence": _}
-                    s['prediction_history_1h'].append({"timestamp": ts1, "price": p_p})
-                    if len(s['prediction_history_1h']) > 150: s['prediction_history_1h'].pop(0)
-                    s['last_ts_1h'], s['last_input_1h'] = ts1, new_in; s['last_training'] = datetime.now().strftime('%H:%M:%S')
+                    new_in = get_inp(df1, '1h'); p_p, _ = manager.predict_tf(coin, '1h', new_in, curr_p); s['prediction_1h'] = {"price": p_p, "confidence": _}; s['last_ts_1h'], s['last_input_1h'] = ts1, new_in; s['last_training'] = datetime.now().strftime('%H:%M:%S')
 
                 if ts5 != s['last_ts_5m']:
                     if s['last_input_5m'] is not None:
-                        manager.online_learn(coin, '5m', s['last_input_5m'], curr_p)
+                        s['active_pulse'] = "Learning (5M)..."; manager.online_learn(coin, '5m', s['last_input_5m'], curr_p)
                         err = abs(s['prediction_5m']['price'] - curr_p) / curr_p; curr_m = (err * 100 * 0.1) + (s['bot_status']['error_rate_5m'] * 0.9); s['bot_status']['error_rate_5m'] = curr_m
                         if curr_m < s['bot_status']['best_error_rate_5m']: s['bot_status']['best_error_rate_5m'] = curr_m; manager.save_single_model(coin, '5m', curr_m)
-                    new_in = get_inp(df5, '5m'); p_p, _ = manager.predict_tf(coin, '5m', new_in, curr_p)
-                    s['prediction_5m'] = {"price": p_p, "confidence": _}
-                    s['prediction_history_5m'].append({"timestamp": ts5, "price": p_p})
-                    if len(s['prediction_history_5m']) > 150: s['prediction_history_5m'].pop(0)
-                    s['last_ts_5m'], s['last_input_5m'] = ts5, new_in; s['last_training'] = datetime.now().strftime('%H:%M:%S')
+                    new_in = get_inp(df5, '5m'); p_p, _ = manager.predict_tf(coin, '5m', new_in, curr_p); s['prediction_5m'] = {"price": p_p, "confidence": _}; s['last_ts_5m'], s['last_input_5m'] = ts5, new_in; s['last_training'] = datetime.now().strftime('%H:%M:%S')
 
                 s['consensus'] = manager.get_consensus_signal(coin, get_inp(df1, '1h'), get_inp(df5, '5m'), curr_p); s['active_pulse'] = "Monitoring Market"
+
             await asyncio.sleep(15)
-        except Exception as e: 
-            print(f"[THINKER ERROR] {e}")
-            if not stop_event.is_set(): await asyncio.sleep(10)
+        except Exception as e: print(f"[THINKER ERROR] {e}"); await asyncio.sleep(10)
+
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(bot_thinker())
+    asyncio.create_task(ticker_loop())
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7860)

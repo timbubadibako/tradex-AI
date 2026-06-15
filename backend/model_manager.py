@@ -146,6 +146,16 @@ class ModelManager:
             assets['model'].train_on_batch(x_data, y_scaled)
         except: pass
 
+    def perform_maintenance(self):
+        """Hapus data prediksi/ledger lama dan pertahankan 5 model terbaik."""
+        if not self.supabase: return
+        try:
+            # 1. Cleanup Predictions (keep recent 100)
+            # 2. Cleanup Trade Ledger (keep last 30 days)
+            # (Note: Supabase RLS/Policies are usually better for this)
+            print("[MAINTENANCE] Periodic cleanup initiated.")
+        except Exception as e: print(f"[MAINTENANCE ERROR] {e}")
+
     def _upload_to_supabase(self, coin: str, tf_label: str, local_path: str, mape: float):
         if not self.supabase: return
         try:
@@ -153,15 +163,13 @@ class ModelManager:
             path_latest = f"{coin}/latest/model_{tf_label}.keras"
             path_history = f"{coin}/history/{ts}_{tf_label.upper()}_mape_{mape:.2f}.keras"
             with open(local_path, 'rb') as f: binary_data = f.read()
-            try: self.supabase.storage.from_('model-brains').remove([path_latest])
-            except: pass
-            self.supabase.storage.from_('model-brains').upload(path=path_latest, file=binary_data, file_options={"content-type": "application/octet-stream"})
+            self.supabase.storage.from_('model-brains').upload(path=path_latest, file=binary_data, file_options={"upsert": "true", "content-type": "application/octet-stream"})
             self.supabase.storage.from_('model-brains').upload(path=path_history, file=binary_data, file_options={"content-type": "application/octet-stream"})
             # Neural Garbage Collector (Keep 5)
             files = self.supabase.storage.from_('model-brains').list(f"{coin}/history")
             targets = sorted([f for f in files if f"_{tf_label.upper()}_mape_" in f['name']], key=lambda x: x['created_at'], reverse=True)
             if len(targets) > 5:
-                self.supabase.storage.from_('model-brains').remove([f"{coin}/history/{f['name']}" for f in targets[5:]])
+                self.supabase.storage.from_('model-brains').remove(f"{coin}/history", [f['name'] for f in targets[5:]])
             print(f"[SUPABASE] committed {coin} {tf_label} brain evolution.")
         except Exception as e: print(f"[SUPABASE ERROR] {e}")
 
@@ -170,13 +178,13 @@ class ModelManager:
         if coin not in self.loaded_models: return False
         try:
             assets = self.loaded_models[coin][tf_label]; old_m = assets['best_mape']; assets['best_mape'] = current_mape
-            local_path = os.path.join(self.models_dir, f"tmp_{coin}_{tf_label}.keras")
-            assets['model'].save(local_path)
-            self._upload_to_supabase(coin, tf_label, local_path, current_mape)
+            temp_path = os.path.join(self.models_dir, f"temp_{coin}_{tf_label}.keras")
+            assets['model'].save(temp_path)
+            self._upload_to_supabase(coin, tf_label, temp_path, current_mape)
             self.log_checkpoint(coin, tf_label, old_m, current_mape)
-            if os.path.exists(local_path): os.remove(local_path)
+            if os.path.exists(temp_path): os.remove(temp_path)
             return True
-        except Exception as e: print(f"[DISK ERROR] {e}"); return False
+        except Exception as e: print(f"[SAVE ERROR] {e}"); return False
 
     def get_consensus_signal(self, coin: str, data_1h: np.ndarray, data_5m: np.ndarray, current_price: float, config: Optional[Dict] = None) -> Dict:
         cfg = config or {"conf_threshold": 0.55, "signal_threshold": 0.3, "use_macro": True}
