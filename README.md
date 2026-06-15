@@ -59,5 +59,17 @@ Tradex AI adalah ekosistem trading AI canggih yang dirancang untuk eksekusi pasa
 ## 🛠️ Maintenance & Evolution
 Sistem ini mendukung *Cloud-Centric Model Storage*. Model terbaik secara otomatis diunggah ke Supabase Storage, dan sistem melakukan pembersihan berkala (*Smart 5 Model History*) untuk memastikan performa tetap optimal.
 
+## 📊 Model Performance Reports
+Berikut adalah laporan performa awal untuk setiap aset yang dilatih:
+
+| Asset | Timeframe | Report |
+| :--- | :--- | :--- |
+| BTC | 1H | [View Report](./backend/training_docs/BTC_1h_20260615_1334.md) |
+| BTC | 5M | [View Report](./backend/training_docs/BTC_5_20260615_1406.md) |
+| ETH | 1H | [View Report](./backend/training_docs/ETH_1h_20260615_1419.md) |
+| ETH | 5M | [View Report](./backend/training_docs/ETH_5_20260615_1432.md) |
+| SOL | 1H | [View Report](./backend/training_docs/SOL_1h_20260615_1444.md) |
+| SOL | 5M | [View Report](./backend/training_docs/SOL_5_20260615_1505.md) |
+
 ---
 *Tradex AI - Autonomous Trading Ecosystem*
