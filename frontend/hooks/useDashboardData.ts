@@ -28,7 +28,7 @@ export function useAllAssetsStatus() {
   const totalNetPnl = data?.total_net_pnl || 0;
   const dailyTarget = data?.daily_target || 150000;
   const manualConfig = data?.manual_config || null;
-  const cashBalance = Object.values(assets)[0]?.balance_idr || 500000;
+  const cashBalance = (Object.values(assets)[0] as any)?.balance_idr || 500000;
 
   return { 
     allStatus: assets, 
