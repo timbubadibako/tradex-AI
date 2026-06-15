@@ -61,7 +61,7 @@ export default function BotManagement() {
             setTotalSizeMB(totalBytes / (1024 * 1024));
 
         } catch (e) {
-            console.error("❌ Zenith Storage Sync Error:", e);
+            console.error("❌ Tradex Storage Sync Error:", e);
         } finally {
             setLoading(false);
         }

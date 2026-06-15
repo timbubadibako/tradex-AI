@@ -141,7 +141,7 @@ export default function SafetyPage() {
                    <div>
                       <h4 className="font-black text-slate-800 uppercase text-xs mb-2">Automated SL/TP Info</h4>
                       <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                         Zenith uses **Dynamic Volatility Exit**. Unlike static percentages, ATR-based exits breathe with the market. 
+                         Tradex uses **Dynamic Volatility Exit**. Unlike static percentages, ATR-based exits breathe with the market. 
                          Higher multipliers allow the AI more room to run during high-trend periods.
                       </p>
                    </div>

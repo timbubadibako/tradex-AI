@@ -33,7 +33,7 @@ export const getApiUrl = () => {
   if (typeof window === 'undefined') return process.env.NEXT_PUBLIC_API_URL || HF_URL;
   
   // 1. Check LocalStorage for manual toggle
-  const savedNode = localStorage.getItem('ZENITH_API_NODE');
+  const savedNode = localStorage.getItem('TRADEX_API_NODE');
   if (savedNode === 'LOCAL') return LOCAL_URL;
   if (savedNode === 'CLOUD') return HF_URL;
 
@@ -49,11 +49,11 @@ export const getWsUrl = () => {
 };
 
 export const toggleApiNode = (node: 'LOCAL' | 'CLOUD') => {
-  localStorage.setItem('ZENITH_API_NODE', node);
+  localStorage.setItem('TRADEX_API_NODE', node);
   window.location.reload(); // Force refresh to re-init all hooks
 };
 
 export const getCurrentNode = () => {
   if (typeof window === 'undefined') return 'CLOUD';
-  return localStorage.getItem('ZENITH_API_NODE') || 'CLOUD';
+  return localStorage.getItem('TRADEX_API_NODE') || 'CLOUD';
 };

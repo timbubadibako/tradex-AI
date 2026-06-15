@@ -52,7 +52,7 @@ export default function SettingsPage() {
                 <div className="mt-8 p-6 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-4">
                    <Lock className="w-6 h-6 text-amber-500 shrink-0" />
                    <p className="text-xs text-amber-700 leading-relaxed font-medium">
-                      API Keys are stored locally in your <code className="bg-amber-500/20 px-1 py-0.5 rounded font-black">.env</code> file and encrypted at rest. Never share your secret key with anyone. Zenith will only use these keys for authorized market execution.
+                      API Keys are stored locally in your <code className="bg-amber-500/20 px-1 py-0.5 rounded font-black">.env</code> file and encrypted at rest. Never share your secret key with anyone. Tradex will only use these keys for authorized market execution.
                    </p>
                 </div>
              </GlassCard>

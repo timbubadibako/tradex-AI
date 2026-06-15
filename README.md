@@ -1,8 +1,8 @@
-# Zenith Singularity 🌌
+# Tradex AI 🌌
 
 **Autonomous Multi-Asset Neural Trading Engine**
 
-Zenith Singularity adalah ekosistem trading AI canggih yang dirancang untuk eksekusi pasar otonom 24/7. Menggunakan arsitektur *Hybrid Intelligence*, sistem ini menggabungkan *Deep Learning* (LSTM & Conv1D) untuk prediksi harga dengan sistem *Reinforcement Learning* untuk adaptasi pasar secara *real-time*.
+Tradex AI adalah ekosistem trading AI canggih yang dirancang untuk eksekusi pasar otonom 24/7. Menggunakan arsitektur *Hybrid Intelligence*, sistem ini menggabungkan *Deep Learning* (LSTM & Conv1D) untuk prediksi harga dengan sistem *Reinforcement Learning* untuk adaptasi pasar secara *real-time*.
 
 ## 🏗️ Arsitektur Sistem
 - **Engine (Backend)**: Python FastAPI dengan model TensorFlow, menangani inferensi AI dan logika trading.
@@ -21,11 +21,11 @@ Zenith Singularity adalah ekosistem trading AI canggih yang dirancang untuk ekse
    ```bash
    cd backend
    ```
-2. Buat virtual environment dan instal dependensi:
+2. Buat virtual environment (disarankan menggunakan Python 3.11):
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # atau .\venv\Scripts\activate di Windows
-   pip install -r requirements.txt
+   /usr/bin/python3.11 -m venv venv_zenith
+   ./venv_zenith/bin/pip install --upgrade pip
+   ./venv_zenith/bin/pip install -r requirements.txt
    ```
 3. Konfigurasi file `.env` di dalam folder `backend/`:
    ```env
@@ -34,7 +34,7 @@ Zenith Singularity adalah ekosistem trading AI canggih yang dirancang untuk ekse
    ```
 4. Jalankan bot:
    ```bash
-   python sandbox_bot.py
+   ./venv_zenith/bin/python sandbox_bot.py
    ```
 
 ### Frontend
@@ -46,7 +46,7 @@ Zenith Singularity adalah ekosistem trading AI canggih yang dirancang untuk ekse
    ```bash
    npm install
    ```
-3. Konfigurasi `frontend/.env.local`:
+3. Buat `frontend/.env.local` dan tambahkan kredensial:
    ```env
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
@@ -60,4 +60,4 @@ Zenith Singularity adalah ekosistem trading AI canggih yang dirancang untuk ekse
 Sistem ini mendukung *Cloud-Centric Model Storage*. Model terbaik secara otomatis diunggah ke Supabase Storage, dan sistem melakukan pembersihan berkala (*Smart 5 Model History*) untuk memastikan performa tetap optimal.
 
 ---
-*Zenith Singularity - Autonomous Trading Ecosystem*
+*Tradex AI - Autonomous Trading Ecosystem*
