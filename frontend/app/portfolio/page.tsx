@@ -21,7 +21,7 @@ export default function PortfolioPage() {
   const activePositions = coins.filter(c => Math.abs((allStatus[c]?.btc_holdings || 0) - 0.5) > 0.00000001).length;
   
   // Calculate total equity based on available status
-  const totalEquity = Object.values(allStatus).reduce((sum, asset: any) => sum + (asset?.balance_idr || 0), 0);
+  const totalEquity: number = Object.values(allStatus).reduce((sum: number, asset: any) => sum + (asset?.balance_idr || 0), 0);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-sky-50 via-white to-sky-100 font-sans selection:bg-sky-100">
