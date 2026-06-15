@@ -26,7 +26,7 @@
 
 // KOMENTAR KODE SALAH SATUNYA
 
-const HF_URL = 'https://chivasy1-zenith-trade.hf.space';
+const HF_URL = 'https://chivasy1-tradex.hf.space';
 const LOCAL_URL = 'http://localhost:8000';
 
 export const getApiUrl = () => {
