@@ -23,12 +23,13 @@ export function useBotStatus() {
 export function useAllAssetsStatus() {
   const { data, error, isLoading } = useSWR(`${getApiUrl()}/api/all_status`, fetcher, { refreshInterval: 5000 });
   
-  const assets = data?.assets || {};
+  const assets = (data?.assets || {}) as Record<string, any>;
   const vault = data?.vault || 0;
   const totalNetPnl = data?.total_net_pnl || 0;
   const dailyTarget = data?.daily_target || 150000;
   const manualConfig = data?.manual_config || null;
-  const cashBalance = (Object.values(assets)[0] as any)?.balance_idr || 500000;
+  const assetValues = Object.values(assets);
+  const cashBalance = assetValues.length > 0 ? (assetValues[0] as any)?.balance_idr || 500000 : 500000;
 
   return { 
     allStatus: assets, 
